@@ -8,6 +8,7 @@ use millegrilles_common_rust::middleware_db::{MiddlewareDb, preparer_middleware_
 use millegrilles_common_rust::tokio::spawn;
 use millegrilles_common_rust::tokio::task::JoinHandle;
 use millegrilles_common_rust::tokio::{sync::mpsc::{Receiver, Sender}, time::Duration as DurationTokio};
+use millegrilles_common_rust::tokio_stream::StreamExt;
 use millegrilles_common_rust::transactions::resoumettre_transactions;
 
 use crate::gestionnaire::GestionnaireDocuments;
@@ -34,7 +35,13 @@ pub async fn run() {
     let (futures, _) = build(gestionnaire).await;
 
     // Run
-    // executer(futures).await
+    executer(futures).await
+}
+
+async fn executer(mut futures: FuturesUnordered<JoinHandle<()>>) {
+    info!("domaines_messagerie: Demarrage traitement, top level threads {}", futures.len());
+    let arret = futures.next().await;
+    info!("domaines_messagerie: Fermeture du contexte, task daemon terminee : {:?}", arret);
 }
 
 /// Fonction qui lit le certificat local et extrait les fingerprints idmg et de partition
