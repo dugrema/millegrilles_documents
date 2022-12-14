@@ -135,6 +135,8 @@ pub fn preparer_queues() -> Vec<QueueType> {
 
     let commandes_privees: Vec<&str> = vec![
 
+        // Transactions
+        TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER,
     ];
     for cmd in commandes_privees {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L2Prive});
