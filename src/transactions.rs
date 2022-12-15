@@ -5,10 +5,10 @@ use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissi
 use millegrilles_common_rust::chrono::Utc;
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::formatteur_messages::MessageMilleGrille;
-use millegrilles_common_rust::generateur_messages::GenerateurMessages;
+use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::middleware::sauvegarder_traiter_transaction;
-use millegrilles_common_rust::mongo_dao::{convertir_to_bson, convertir_to_bson_array, MongoDao};
-use millegrilles_common_rust::mongodb::options::UpdateOptions;
+use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, convertir_to_bson_array, MongoDao};
+use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, ReturnDocument, UpdateOptions};
 use millegrilles_common_rust::recepteur_messages::MessageValideAction;
 use millegrilles_common_rust::serde_json::json;
 use millegrilles_common_rust::transactions::Transaction;
@@ -60,8 +60,11 @@ async fn transaction_sauvegarder_categorie_usager<M,T>(gestionnaire: &Gestionnai
     debug!("transaction_sauvegarder_categorie_usager Consommer transaction : {:?}", &transaction);
     let uuid_transaction = transaction.get_uuid_transaction().to_owned();
     let user_id = match transaction.get_enveloppe_certificat() {
-        Some(e) => e.get_user_id()?.to_owned(),
-        None => None
+        Some(e) => match e.get_user_id()? {
+            Some(inner) => inner.to_owned(),
+            None => Err(format!("transactions.transaction_sauvegarder_categorie_usager User_id absent du certificat (cert)"))?
+        },
+        None => Err(format!("transactions.transaction_sauvegarder_categorie_usager User_id absent du certificat (enveloppe)"))?
     };
 
     let transaction_categorie: TransactionSauvegarderCategorieUsager = match transaction.convertir() {
@@ -98,7 +101,7 @@ async fn transaction_sauvegarder_categorie_usager<M,T>(gestionnaire: &Gestionnai
     };
 
     // Remplacer la version la plus recente
-    {
+    let document_categorie = {
         let filtre = doc! {
             "categorie_id": &categorie_id,
             "user_id": &user_id,
@@ -112,21 +115,23 @@ async fn transaction_sauvegarder_categorie_usager<M,T>(gestionnaire: &Gestionnai
         };
 
         let collection = middleware.get_collection(NOM_COLLECTION_CATEGORIES_USAGERS)?;
-        let options = UpdateOptions::builder().upsert(true).build();
-        let resultat = match collection.update_one(filtre, ops, options).await {
-            Ok(inner) => inner,
-            Err(e) => Err(format!("transactions.transaction_sauvegarder_categorie_usager Erreur insert/maj categorie usager : {:?}", e))?
+        let options = FindOneAndUpdateOptions::builder()
+            .upsert(true)
+            .return_document(ReturnDocument::After)
+            .build();
+        let resultat: TransactionSauvegarderCategorieUsager = match collection.find_one_and_update(filtre, ops, options).await {
+            Ok(inner) => match inner {
+                Some(inner) => match convertir_bson_deserializable(inner) {
+                    Ok(inner) => inner,
+                    Err(e) => Err(format!("transactions.transaction_sauvegarder_categorie_usager Erreur insert/maj categorie usager (mapping) : {:?}", e))?
+                },
+                None => Err(format!("transactions.transaction_sauvegarder_categorie_usager Erreur insert/maj categorie usager (None)"))?
+            },
+            Err(e) => Err(format!("transactions.transaction_sauvegarder_categorie_usager Erreur insert/maj categorie usager (exec) : {:?}", e))?
         };
 
-        if resultat.modified_count != 1 && resultat.upserted_id.is_none() {
-            let reponse = json!({ "ok": false, "err": "Erreur insertion categorie" });
-            error!("transactions.transaction_sauvegarder_categorie_usager {:?} : {:?}", reponse, resultat);
-            match middleware.formatter_reponse(reponse, None) {
-                Ok(r) => return Ok(Some(r)),
-                Err(e) => Err(format!("transaction_poster Erreur preparation confirmation envoi message {} : {:?}", uuid_transaction, e))?
-            }
-        }
-    }
+        resultat
+    };
 
     // Conserver la version
     {
@@ -158,6 +163,13 @@ async fn transaction_sauvegarder_categorie_usager<M,T>(gestionnaire: &Gestionnai
             }
         }
     }
+
+    // Emettre evenement maj
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER)
+        .exchanges(vec![Securite::L2Prive])
+        .partition(user_id)
+        .build();
+    middleware.emettre_evenement(routage, &document_categorie).await?;
 
     let reponse = json!({ "ok": true });
     match middleware.formatter_reponse(reponse, None) {
