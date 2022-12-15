@@ -53,6 +53,9 @@ impl GestionnaireDomaine for GestionnaireDocuments {
     fn get_collections_documents(&self) -> Vec<String> {
         vec![
             String::from(NOM_COLLECTION_DOCUMENTS_USAGERS),
+            String::from(NOM_COLLECTION_CATEGORIES_USAGERS),
+            String::from(NOM_COLLECTION_CATEGORIES_USAGERS_VERSION),
+            String::from(NOM_COLLECTION_GROUPES_USAGERS),
         ]
     }
 
@@ -128,6 +131,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
     // RK 2.prive
     let requetes_privees: Vec<&str> = vec![
         REQUETE_CATEGORIES_USAGER,
+        REQUETE_GROUPES_USAGER,
     ];
     for req in requetes_privees {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("requete.{}.{}", DOMAINE_NOM, req), exchange: Securite::L2Prive});
@@ -136,6 +140,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
     let commandes_privees: Vec<&str> = vec![
         // Transactions
         TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER,
+        TRANSACTION_SAUVEGARDER_GROUPE_USAGER,
     ];
     for cmd in commandes_privees {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L2Prive});

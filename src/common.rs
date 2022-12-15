@@ -28,3 +28,17 @@ pub struct ChampCategorie {
     pub taille_maximum: Option<i32>,
     pub requis: Option<bool>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransactionSauvegarderGroupeUsager {
+    pub groupe_id: Option<String>,
+    pub nom_groupe: String,
+    pub categorie_id: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DocGroupeUsager {
+    pub groupe_id: String,
+    pub nom_groupe: String,
+    pub categorie_id: String,
+}
