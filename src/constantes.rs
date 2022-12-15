@@ -9,3 +9,5 @@ pub const NOM_Q_VOLATILS: &str = "Documents/volatils";
 pub const NOM_Q_TRIGGERS: &str = "Documents/triggers";
 
 pub const TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER: &str = "sauvegarderCategorieUsager";
+
+pub const REQUETE_CATEGORIES_USAGER: &str = "getCategoriesUsager";

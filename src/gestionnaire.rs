@@ -127,14 +127,13 @@ pub fn preparer_queues() -> Vec<QueueType> {
 
     // RK 2.prive
     let requetes_privees: Vec<&str> = vec![
-
+        REQUETE_CATEGORIES_USAGER,
     ];
     for req in requetes_privees {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("requete.{}.{}", DOMAINE_NOM, req), exchange: Securite::L2Prive});
     }
 
     let commandes_privees: Vec<&str> = vec![
-
         // Transactions
         TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER,
     ];
@@ -187,20 +186,38 @@ pub fn preparer_queues() -> Vec<QueueType> {
 pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), String>
     where M: MongoDao + ConfigMessages
 {
-    // // Index uuid_transaction pour messages_outgoing
-    // let options_unique_outgoing_transactions_uuid_transaction = IndexOptions {
-    //     nom_index: Some(String::from("uuid_transaction")),
-    //     unique: true
-    // };
-    // let champs_index_outgoing_transactions_uuid_transactions = vec!(
-    //     ChampIndex {nom_champ: String::from("uuid_transaction"), direction: 1},
-    // );
-    // middleware.create_index(
-    //     middleware,
-    //     NOM_COLLECTION_OUTGOING_PROCESSING,
-    //     champs_index_outgoing_transactions_uuid_transactions,
-    //     Some(options_unique_outgoing_transactions_uuid_transaction)
-    // ).await?;
+    // Index categorie_id / user_id pour categories_usager
+    let options_unique_categories_usager = IndexOptions {
+        nom_index: Some(String::from("categorie_id_usager")),
+        unique: true
+    };
+    let champs_index_categories_usager = vec!(
+        ChampIndex {nom_champ: String::from("categorie_id"), direction: 1},
+        ChampIndex {nom_champ: String::from("user_id"), direction: 1},
+    );
+    middleware.create_index(
+        middleware,
+        NOM_COLLECTION_CATEGORIES_USAGERS,
+        champs_index_categories_usager,
+        Some(options_unique_categories_usager)
+    ).await?;
+
+    // Index categorie_id / user_id pour categories_usager_versions
+    let options_unique_categories_usager_versions = IndexOptions {
+        nom_index: Some(String::from("categorie_id_usager_version")),
+        unique: true
+    };
+    let champs_index_categories_usager_versions = vec!(
+        ChampIndex {nom_champ: String::from("categorie_id"), direction: 1},
+        ChampIndex {nom_champ: String::from("user_id"), direction: 1},
+        ChampIndex {nom_champ: String::from("version"), direction: 1},
+    );
+    middleware.create_index(
+        middleware,
+        NOM_COLLECTION_CATEGORIES_USAGERS_VERSION,
+        champs_index_categories_usager_versions,
+        Some(options_unique_categories_usager_versions)
+    ).await?;
 
     Ok(())
 }
