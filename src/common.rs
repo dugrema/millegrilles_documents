@@ -1,3 +1,5 @@
+use millegrilles_common_rust::chiffrage::FormatChiffrage;
+use millegrilles_common_rust::chiffrage_cle::CommandeSauvegarderCle;
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 
 /// Commande/Transaction de sauvegarde d'une categorie usager.
@@ -32,13 +34,21 @@ pub struct ChampCategorie {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TransactionSauvegarderGroupeUsager {
     pub groupe_id: Option<String>,
-    pub nom_groupe: String,
     pub categorie_id: String,
+    pub data_chiffre: String,
+    pub format: FormatChiffrage,
+    pub header: String,
+    pub ref_hachage_bytes: String,
+    #[serde(rename="_commandeMaitrecles", skip_serializing_if = "Option::is_none")]
+    pub commande_maitredescles: Option<CommandeSauvegarderCle>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DocGroupeUsager {
     pub groupe_id: String,
-    pub nom_groupe: String,
     pub categorie_id: String,
+    pub data_chiffre: String,
+    pub format: FormatChiffrage,
+    pub header: String,
+    pub ref_hachage_bytes: String,
 }

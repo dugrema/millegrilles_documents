@@ -1,8 +1,9 @@
 use std::error::Error;
 use log::{debug, error};
-use millegrilles_common_rust::bson::doc;
+use millegrilles_common_rust::bson::{Bson, doc};
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::chrono::Utc;
+use millegrilles_common_rust::common_messages::verifier_reponse_ok;
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::formatteur_messages::MessageMilleGrille;
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
@@ -202,6 +203,21 @@ async fn transaction_sauvegarder_groupe_usager<M,T>(gestionnaire: &GestionnaireD
         Err(e) => Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur conversion transaction : {:?}", e))?
     };
 
+    if let Some(maitrecles) = transaction_groupe.commande_maitredescles {
+        debug!("transaction_sauvegarder_groupe_usager Emettre commande pour cle de groupe");
+        let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+            .exchanges(vec![Securite::L4Secure])
+            .build();
+        if let Some(reponse) = middleware.transmettre_commande(routage, &maitrecles, true).await? {
+            debug!("Reponse sauvegarde cle : {:?}", reponse);
+            if ! verifier_reponse_ok(&reponse) {
+                Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur sauvegarde cle"))?
+            }
+        } else {
+            Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur sauvegarde cle - timeout/erreur"))?
+        }
+    }
+
     let groupe_id = if let Some(groupe_id) = transaction_groupe.groupe_id {
         groupe_id
     } else {
@@ -215,8 +231,12 @@ async fn transaction_sauvegarder_groupe_usager<M,T>(gestionnaire: &GestionnaireD
         CHAMP_CREATION: Utc::now(),
     };
 
+    let bson_format: Bson = transaction_groupe.format.into();
     let set_ops = doc! {
-        "nom_groupe": transaction_groupe.nom_groupe,
+        "data_chiffre": transaction_groupe.data_chiffre,
+        "format": bson_format,
+        "header": transaction_groupe.header,
+        "ref_hachage_bytes": transaction_groupe.ref_hachage_bytes,
     };
 
     // Remplacer la version la plus recente
