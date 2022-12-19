@@ -14,3 +14,4 @@ pub const TRANSACTION_SAUVEGARDER_GROUPE_USAGER: &str = "sauvegarderGroupeUsager
 
 pub const REQUETE_CATEGORIES_USAGER: &str = "getCategoriesUsager";
 pub const REQUETE_GROUPES_USAGER: &str = "getGroupesUsager";
+pub const REQUETE_GROUPES_CLES: &str = "getClesGroupes";

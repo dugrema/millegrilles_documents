@@ -4,7 +4,7 @@ use millegrilles_common_rust::bson::doc;
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::formatteur_messages::MessageMilleGrille;
-use millegrilles_common_rust::generateur_messages::GenerateurMessages;
+use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, MongoDao};
 use millegrilles_common_rust::recepteur_messages::MessageValideAction;
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
@@ -41,6 +41,7 @@ pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, 
             match message.action.as_str() {
                 REQUETE_CATEGORIES_USAGER => requete_get_categories_usager(middleware, message, gestionnaire).await,
                 REQUETE_GROUPES_USAGER => requete_get_groupes_usager(middleware, message, gestionnaire).await,
+                REQUETE_GROUPES_CLES => requete_get_groupes_cles(middleware, message, gestionnaire).await,
                 _ => {
                     error!("Message requete/action inconnue : '{}'. Message dropped.", message.action);
                     Ok(None)
@@ -144,4 +145,54 @@ async fn requete_get_groupes_usager<M>(middleware: &M, m: MessageValideAction, g
 
     let reponse = json!({ "groupes": liste_groupes });
     Ok(Some(middleware.formatter_reponse(&reponse, None)?))
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct RequeteGetGroupesCles {
+    liste_hachage_bytes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct HachageBytesMapping {
+    ref_hachage_bytes: String
+}
+
+async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireDocuments)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + VerificateurMessage,
+{
+    debug!("requete_get_groupes_cles Message : {:?}", & m.message);
+    let requete: RequeteGetGroupesCles = m.message.get_msg().map_contenu(None)?;
+
+    let user_id = match m.get_user_id() {
+        Some(u) => u,
+        None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "msg": "Access denied"}), None)?))
+    };
+
+    let filtre = doc! {
+        "user_id": &user_id,
+        "ref_hachage_bytes": {"$in": &requete.liste_hachage_bytes}
+    };
+    let collection = middleware.get_collection(NOM_COLLECTION_GROUPES_USAGERS)?;
+    let mut curseur = collection.find(filtre, None).await?;
+
+    let mut liste_hachage_bytes = Vec::new();
+    while let Some(row) = curseur.next().await {
+        let valeur: HachageBytesMapping = convertir_bson_deserializable(row?)?;
+        liste_hachage_bytes.push(valeur.ref_hachage_bytes);
+    }
+
+    // Creer nouvelle requete pour MaitreDesCles, rediriger vers client
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, MAITREDESCLES_REQUETE_DECHIFFRAGE)
+        .exchanges(vec![Securite::L4Secure])
+        .reply_to(m.reply_q.expect("reply_to"))
+        .correlation_id(m.correlation_id.expect("correlation"))
+        .blocking(false)
+        .build();
+    let requete_cles = json!({
+        "liste_hachage_bytes": liste_hachage_bytes
+    });
+    middleware.transmettre_requete(routage, &requete_cles).await?;
+
+    Ok(None)
 }

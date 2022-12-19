@@ -132,6 +132,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
     let requetes_privees: Vec<&str> = vec![
         REQUETE_CATEGORIES_USAGER,
         REQUETE_GROUPES_USAGER,
+        REQUETE_GROUPES_CLES,
     ];
     for req in requetes_privees {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("requete.{}.{}", DOMAINE_NOM, req), exchange: Securite::L2Prive});
