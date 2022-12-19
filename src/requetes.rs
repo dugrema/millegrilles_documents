@@ -169,6 +169,13 @@ async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValideAction, ges
         None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "msg": "Access denied"}), None)?))
     };
 
+    let certificat_client: Vec<String> = match m.message.certificat {
+        Some(c) => {
+            c.get_pem_vec().iter().map(|c| c.pem.to_owned()).collect()
+        },
+        None => Err(format!("requetes.requete_get_groupes_cles Certificat manquant"))?
+    };
+
     let filtre = doc! {
         "user_id": &user_id,
         "ref_hachage_bytes": {"$in": &requete.liste_hachage_bytes}
@@ -190,7 +197,8 @@ async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValideAction, ges
         .blocking(false)
         .build();
     let requete_cles = json!({
-        "liste_hachage_bytes": liste_hachage_bytes
+        "liste_hachage_bytes": liste_hachage_bytes,
+        "certificat_rechiffrage": certificat_client,
     });
     middleware.transmettre_requete(routage, &requete_cles).await?;
 
