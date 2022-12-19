@@ -27,6 +27,7 @@ pub async fn aiguillage_transaction<M, T>(gestionnaire: &GestionnaireDocuments, 
     match transaction.get_action() {
         TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER => transaction_sauvegarder_categorie_usager(gestionnaire, middleware, transaction).await,
         TRANSACTION_SAUVEGARDER_GROUPE_USAGER => transaction_sauvegarder_groupe_usager(gestionnaire, middleware, transaction).await,
+        TRANSACTION_SAUVEGARDER_DOCUMENT => transaction_sauvegarder_document(gestionnaire, middleware, transaction).await,
         _ => Err(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.get_uuid_transaction(), transaction.get_action())),
     }
 }
@@ -42,7 +43,8 @@ where
     match m.action.as_str() {
         // 4.secure - doivent etre validees par une commande
         TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER |
-        TRANSACTION_SAUVEGARDER_GROUPE_USAGER => {
+        TRANSACTION_SAUVEGARDER_GROUPE_USAGER |
+        TRANSACTION_SAUVEGARDER_DOCUMENT => {
             match m.verifier_exchanges(vec![Securite::L4Secure]) {
                 true => Ok(()),
                 false => Err(format!("transactions.consommer_transaction: Message autorisation invalide (pas 4.secure)"))
@@ -282,6 +284,95 @@ async fn transaction_sauvegarder_groupe_usager<M,T>(gestionnaire: &GestionnaireD
     match middleware.formatter_reponse(reponse, None) {
         Ok(r) => Ok(Some(r)),
         Err(e) => Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur preparation confirmat envoi message {} : {:?}", uuid_transaction, e))
+    }
+
+}
+
+async fn transaction_sauvegarder_document<M,T>(gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: T)
+    -> Result<Option<MessageMilleGrille>, String>
+    where
+        M: GenerateurMessages + MongoDao,
+        T: Transaction
+{
+    debug!("transaction_sauvegarder_document Consommer transaction : {:?}", &transaction);
+    let uuid_transaction = transaction.get_uuid_transaction().to_owned();
+    let user_id = match transaction.get_enveloppe_certificat() {
+        Some(e) => match e.get_user_id()? {
+            Some(inner) => inner.to_owned(),
+            None => Err(format!("transactions.transaction_sauvegarder_document User_id absent du certificat (cert)"))?
+        },
+        None => Err(format!("transactions.transaction_sauvegarder_document User_id absent du certificat (enveloppe)"))?
+    };
+
+    let transaction_doc: TransactionSauvegarderDocument = match transaction.convertir() {
+        Ok(t) => t,
+        Err(e) => Err(format!("transactions.transaction_sauvegarder_document Erreur conversion transaction : {:?}", e))?
+    };
+
+    let doc_id = if let Some(doc_id) = transaction_doc.doc_id {
+        doc_id
+    } else {
+        uuid_transaction.clone()
+    };
+
+    let set_on_insert = doc! {
+        "doc_id": &doc_id,
+        "groupe_id": &transaction_doc.groupe_id,
+        "user_id": &user_id,
+        CHAMP_CREATION: Utc::now(),
+    };
+
+    let bson_format: Bson = transaction_doc.format.into();
+    let set_ops = doc! {
+        "categorie_version": transaction_doc.categorie_version,
+        "data_chiffre": transaction_doc.data_chiffre,
+        "format": bson_format,
+        "header": transaction_doc.header,
+    };
+
+    // Remplacer la version la plus recente
+    let document_doc = {
+        let filtre = doc! {
+            "doc_id": &doc_id,
+            "user_id": &user_id,
+        };
+
+        let ops = doc! {
+            "$set": &set_ops,
+            "$setOnInsert": &set_on_insert,
+            "$currentDate": {CHAMP_MODIFICATION: true},
+        };
+
+        let collection = middleware.get_collection(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
+        let options = FindOneAndUpdateOptions::builder()
+            .upsert(true)
+            .return_document(ReturnDocument::After)
+            .build();
+        let resultat: DocDocument = match collection.find_one_and_update(filtre, ops, options).await {
+            Ok(inner) => match inner {
+                Some(inner) => match convertir_bson_deserializable(inner) {
+                    Ok(inner) => inner,
+                    Err(e) => Err(format!("transactions.transaction_sauvegarder_document Erreur insert/maj groupe usager (mapping) : {:?}", e))?
+                },
+                None => Err(format!("transactions.transaction_sauvegarder_document Erreur insert/maj groupe usager (None)"))?
+            },
+            Err(e) => Err(format!("transactions.transaction_sauvegarder_document Erreur insert/maj groupe usager (exec) : {:?}", e))?
+        };
+
+        resultat
+    };
+
+    // Emettre evenement maj
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_SAUVEGARDER_DOCUMENT)
+        .exchanges(vec![Securite::L2Prive])
+        .partition(user_id)
+        .build();
+    middleware.emettre_evenement(routage, &document_doc).await?;
+
+    let reponse = json!({ "ok": true });
+    match middleware.formatter_reponse(reponse, None) {
+        Ok(r) => Ok(Some(r)),
+        Err(e) => Err(format!("transactions.transaction_sauvegarder_document Erreur preparation confirmat envoi message {} : {:?}", uuid_transaction, e))
     }
 
 }

@@ -11,7 +11,9 @@ pub const NOM_Q_TRIGGERS: &str = "Documents/triggers";
 
 pub const TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER: &str = "sauvegarderCategorieUsager";
 pub const TRANSACTION_SAUVEGARDER_GROUPE_USAGER: &str = "sauvegarderGroupeUsager";
+pub const TRANSACTION_SAUVEGARDER_DOCUMENT: &str = "sauvegarderDocument";
 
 pub const REQUETE_CATEGORIES_USAGER: &str = "getCategoriesUsager";
 pub const REQUETE_GROUPES_USAGER: &str = "getGroupesUsager";
 pub const REQUETE_GROUPES_CLES: &str = "getClesGroupes";
+pub const REQUETE_DOCUMENTS_GROUPE: &str = "getDocumentsGroupe";

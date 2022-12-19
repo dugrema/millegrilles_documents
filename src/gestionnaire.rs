@@ -133,6 +133,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
         REQUETE_CATEGORIES_USAGER,
         REQUETE_GROUPES_USAGER,
         REQUETE_GROUPES_CLES,
+        REQUETE_DOCUMENTS_GROUPE,
     ];
     for req in requetes_privees {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("requete.{}.{}", DOMAINE_NOM, req), exchange: Securite::L2Prive});
@@ -142,6 +143,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
         // Transactions
         TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER,
         TRANSACTION_SAUVEGARDER_GROUPE_USAGER,
+        TRANSACTION_SAUVEGARDER_DOCUMENT,
     ];
     for cmd in commandes_privees {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L2Prive});

@@ -52,3 +52,23 @@ pub struct DocGroupeUsager {
     pub header: String,
     pub ref_hachage_bytes: String,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransactionSauvegarderDocument {
+    pub doc_id: Option<String>,
+    pub groupe_id: String,
+    pub categorie_version: i32,
+    pub data_chiffre: String,
+    pub format: FormatChiffrage,
+    pub header: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DocDocument {
+    pub doc_id: String,
+    pub groupe_id: String,
+    pub categorie_version: i32,
+    pub data_chiffre: String,
+    pub format: FormatChiffrage,
+    pub header: String,
+}

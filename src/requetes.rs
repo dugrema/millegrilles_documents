@@ -12,7 +12,7 @@ use millegrilles_common_rust::serde_json::json;
 use millegrilles_common_rust::verificateur::VerificateurMessage;
 use millegrilles_common_rust::tokio_stream::StreamExt;
 
-use crate::common::{DocCategorieUsager, DocGroupeUsager};
+use crate::common::{DocCategorieUsager, DocDocument, DocGroupeUsager};
 use crate::constantes::*;
 use crate::gestionnaire::GestionnaireDocuments;
 
@@ -42,6 +42,7 @@ pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, 
                 REQUETE_CATEGORIES_USAGER => requete_get_categories_usager(middleware, message, gestionnaire).await,
                 REQUETE_GROUPES_USAGER => requete_get_groupes_usager(middleware, message, gestionnaire).await,
                 REQUETE_GROUPES_CLES => requete_get_groupes_cles(middleware, message, gestionnaire).await,
+                REQUETE_DOCUMENTS_GROUPE => requete_get_documents_groupe(middleware, message, gestionnaire).await,
                 _ => {
                     error!("Message requete/action inconnue : '{}'. Message dropped.", message.action);
                     Ok(None)
@@ -203,4 +204,52 @@ async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValideAction, ges
     middleware.transmettre_requete(routage, &requete_cles).await?;
 
     Ok(None)
+}
+
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct RequeteGetDocumentsGroupe {
+    groupe_id: String,
+    limit: Option<i32>,
+    skip: Option<i32>,
+}
+
+async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireDocuments)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + VerificateurMessage,
+{
+    debug!("requete_get_documents_groupe Message : {:?}", & m.message);
+    let requete: RequeteGetDocumentsGroupe = m.message.get_msg().map_contenu(None)?;
+
+    let user_id = match m.get_user_id() {
+        Some(u) => u,
+        None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "msg": "Access denied"}), None)?))
+    };
+
+    let limit = match requete.limit {
+        Some(l) => l,
+        None => 100
+    };
+    let skip = match requete.skip {
+        Some(s) => s,
+        None => 0
+    };
+
+    let liste_documents = {
+        let mut liste_documents = Vec::new();
+
+        let filtre = doc! { "user_id": &user_id, "groupe_id": &requete.groupe_id };
+        let collection = middleware.get_collection(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
+
+        let mut curseur = collection.find(filtre, None).await?;
+        while let Some(doc_groupe) = curseur.next().await {
+            let doc: DocDocument = convertir_bson_deserializable(doc_groupe?)?;
+            liste_documents.push(doc);
+        }
+
+        liste_documents
+    };
+
+    let reponse = json!({ "documents": liste_documents });
+    Ok(Some(middleware.formatter_reponse(&reponse, None)?))
 }
