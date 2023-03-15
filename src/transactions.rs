@@ -205,18 +205,20 @@ async fn transaction_sauvegarder_groupe_usager<M,T>(gestionnaire: &GestionnaireD
         Err(e) => Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur conversion transaction : {:?}", e))?
     };
 
-    if let Some(maitrecles) = transaction_groupe.commande_maitredescles {
-        debug!("transaction_sauvegarder_groupe_usager Emettre commande pour cle de groupe");
-        let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
-            .exchanges(vec![Securite::L4Secure])
-            .build();
-        if let Some(reponse) = middleware.transmettre_commande(routage, &maitrecles, true).await? {
-            debug!("Reponse sauvegarde cle : {:?}", reponse);
-            if ! verifier_reponse_ok(&reponse) {
-                Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur sauvegarde cle"))?
+    if middleware.get_mode_regeneration() == false {
+        if let Some(maitrecles) = transaction_groupe.commande_maitredescles {
+            debug!("transaction_sauvegarder_groupe_usager Emettre commande pour cle de groupe");
+            let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+                .exchanges(vec![Securite::L4Secure])
+                .build();
+            if let Some(reponse) = middleware.transmettre_commande(routage, &maitrecles, true).await? {
+                debug!("Reponse sauvegarde cle : {:?}", reponse);
+                if !verifier_reponse_ok(&reponse) {
+                    Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur sauvegarde cle"))?
+                }
+            } else {
+                Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur sauvegarde cle - timeout/erreur"))?
             }
-        } else {
-            Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur sauvegarde cle - timeout/erreur"))?
         }
     }
 
