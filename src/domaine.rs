@@ -137,6 +137,10 @@ async fn entretien<M>(gestionnaires: Vec<&'static TypeGestionnaire>, middleware:
         debug!("domaines_messagerie.entretien Fin cycle, sleep {} secondes", DUREE_ATTENTE / 1000);
         let duration = DurationTokio::from_millis(DUREE_ATTENTE);
         sleep(duration).await;
+        if middleware.get_mode_regeneration() == true {
+            debug!("entretien Regeneration en cours, skip entretien");
+            continue;
+        }
 
         middleware.entretien_validateur().await;
 
