@@ -204,27 +204,28 @@ async fn transaction_sauvegarder_groupe_usager<M,T>(gestionnaire: &GestionnaireD
         None => Err(format!("transactions.transaction_sauvegarder_groupe_usager User_id absent du certificat (enveloppe)"))?
     };
 
+
     let transaction_groupe: TransactionSauvegarderGroupeUsager = match transaction.convertir() {
         Ok(t) => t,
         Err(e) => Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur conversion transaction : {:?}", e))?
     };
 
-    if middleware.get_mode_regeneration() == false {
-        if let Some(maitrecles) = transaction_groupe.commande_maitredescles {
-            debug!("transaction_sauvegarder_groupe_usager Emettre commande pour cle de groupe");
-            let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
-                .exchanges(vec![Securite::L4Secure])
-                .build();
-            if let Some(reponse) = middleware.transmettre_commande(routage, &maitrecles, true).await? {
-                debug!("Reponse sauvegarde cle : {:?}", reponse);
-                if !verifier_reponse_ok(&reponse) {
-                    Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur sauvegarde cle"))?
-                }
-            } else {
-                Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur sauvegarde cle - timeout/erreur"))?
-            }
-        }
-    }
+    // if middleware.get_mode_regeneration() == false {
+    //     if let Some(maitrecles) = transaction_groupe.commande_maitredescles {
+    //         debug!("transaction_sauvegarder_groupe_usager Emettre commande pour cle de groupe");
+    //         let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+    //             .exchanges(vec![Securite::L4Secure])
+    //             .build();
+    //         if let Some(reponse) = middleware.transmettre_commande(routage, &maitrecles, true).await? {
+    //             debug!("Reponse sauvegarde cle : {:?}", reponse);
+    //             if !verifier_reponse_ok(&reponse) {
+    //                 Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur sauvegarde cle"))?
+    //             }
+    //         } else {
+    //             Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur sauvegarde cle - timeout/erreur"))?
+    //         }
+    //     }
+    // }
 
     let groupe_id = if let Some(groupe_id) = transaction_groupe.groupe_id {
         groupe_id

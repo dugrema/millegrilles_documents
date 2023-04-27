@@ -39,8 +39,8 @@ pub struct TransactionSauvegarderGroupeUsager {
     pub format: FormatChiffrage,
     pub header: String,
     pub ref_hachage_bytes: String,
-    #[serde(rename="_commandeMaitrecles", skip_serializing_if = "Option::is_none")]
-    pub commande_maitredescles: Option<CommandeSauvegarderCle>,
+    // #[serde(rename="_commandeMaitrecles", skip_serializing_if = "Option::is_none")]
+    // pub commande_maitredescles: Option<CommandeSauvegarderCle>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

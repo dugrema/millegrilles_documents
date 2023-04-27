@@ -1,10 +1,10 @@
 use std::error::Error;
-use log::debug;
+use log::{debug, error};
 use millegrilles_common_rust::bson::doc;
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::formatteur_messages::MessageMilleGrille;
-use millegrilles_common_rust::generateur_messages::GenerateurMessages;
+use millegrilles_common_rust::generateur_messages::{GenerateurMessages, transmettre_cle_attachee};
 use millegrilles_common_rust::middleware::{ChiffrageFactoryTrait, sauvegarder_traiter_transaction};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, MongoDao};
 use millegrilles_common_rust::recepteur_messages::MessageValideAction;
@@ -99,7 +99,7 @@ async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValideAction
     Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
 }
 
-async fn commande_sauvegader_groupe<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireDocuments)
+async fn commande_sauvegader_groupe<M>(middleware: &M, mut m: MessageValideAction, gestionnaire: &GestionnaireDocuments)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
@@ -132,6 +132,26 @@ async fn commande_sauvegader_groupe<M>(middleware: &M, m: MessageValideAction, g
                 let reponse = json!({"ok": false, "err": "La categorie ne peut pas etre changee"});
                 return Ok(Some(middleware.formatter_reponse(&reponse, None)?));
             }
+        }
+    }
+
+    // Traiter la cle
+    match m.message.parsed.attachements.take() {
+        Some(mut attachements) => match attachements.remove("cle") {
+            Some(cle) => {
+                if let Some(reponse) = transmettre_cle_attachee(middleware, cle).await? {
+                    error!("Erreur sauvegarde cle : {:?}", reponse);
+                    return Ok(Some(reponse));
+                }
+            },
+            None => {
+                error!("Cle de nouvelle collection manquante (1)");
+                return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Cle manquante"}), None)?));
+            }
+        },
+        None => {
+            error!("Cle de nouvelle collection manquante (2)");
+            return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Cle manquante"}), None)?));
         }
     }
 
