@@ -67,7 +67,7 @@ async fn requete_get_categories_usager<M>(middleware: &M, m: MessageValideAction
     where M: GenerateurMessages + MongoDao + VerificateurMessage,
 {
     debug!("requete_get_categories_usager Message : {:?}", & m.message);
-    let requete: RequeteGetCategoriesUsager = m.message.get_msg().map_contenu(None)?;
+    let requete: RequeteGetCategoriesUsager = m.message.get_msg().map_contenu()?;
 
     let user_id = match m.get_user_id() {
         Some(u) => u,
@@ -113,7 +113,7 @@ async fn requete_get_groupes_usager<M>(middleware: &M, m: MessageValideAction, g
     where M: GenerateurMessages + MongoDao + VerificateurMessage,
 {
     debug!("requete_get_groupes_usager Message : {:?}", & m.message);
-    let requete: RequeteGetGroupesUsager = m.message.get_msg().map_contenu(None)?;
+    let requete: RequeteGetGroupesUsager = m.message.get_msg().map_contenu()?;
 
     let user_id = match m.get_user_id() {
         Some(u) => u,
@@ -163,7 +163,7 @@ async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValideAction, ges
     where M: GenerateurMessages + MongoDao + VerificateurMessage,
 {
     debug!("requete_get_groupes_cles Message : {:?}", & m.message);
-    let requete: RequeteGetGroupesCles = m.message.get_msg().map_contenu(None)?;
+    let requete: RequeteGetGroupesCles = m.message.get_msg().map_contenu()?;
 
     let user_id = match m.get_user_id() {
         Some(u) => u,
@@ -219,7 +219,7 @@ async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValideAction,
     where M: GenerateurMessages + MongoDao + VerificateurMessage,
 {
     debug!("requete_get_documents_groupe Message : {:?}", & m.message);
-    let requete: RequeteGetDocumentsGroupe = m.message.get_msg().map_contenu(None)?;
+    let requete: RequeteGetDocumentsGroupe = m.message.get_msg().map_contenu()?;
 
     let user_id = match m.get_user_id() {
         Some(u) => u,

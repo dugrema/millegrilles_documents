@@ -24,11 +24,15 @@ pub async fn aiguillage_transaction<M, T>(gestionnaire: &GestionnaireDocuments, 
         M: ValidateurX509 + GenerateurMessages + MongoDao,
         T: Transaction
 {
-    match transaction.get_action() {
+    let action = match transaction.get_routage().action.as_ref() {
+        Some(inner) => inner.as_str(),
+        None => Err(format!("transactions.aiguillage_transaction: Transaction {} n'a pas d'action - skip", transaction.get_uuid_transaction()))?,
+    };
+    match action {
         TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER => transaction_sauvegarder_categorie_usager(gestionnaire, middleware, transaction).await,
         TRANSACTION_SAUVEGARDER_GROUPE_USAGER => transaction_sauvegarder_groupe_usager(gestionnaire, middleware, transaction).await,
         TRANSACTION_SAUVEGARDER_DOCUMENT => transaction_sauvegarder_document(gestionnaire, middleware, transaction).await,
-        _ => Err(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.get_uuid_transaction(), transaction.get_action())),
+        _ => Err(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.get_uuid_transaction(), action)),
     }
 }
 
