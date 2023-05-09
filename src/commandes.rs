@@ -54,7 +54,7 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
 
 async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireDocuments)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage
 {
     debug!("commande_sauvegader_categorie Consommer commande : {:?}", & m.message);
     let commande: TransactionSauvegarderCategorieUsager = m.message.get_msg().map_contenu()?;
@@ -101,7 +101,7 @@ async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValideAction
 
 async fn commande_sauvegader_groupe<M>(middleware: &M, mut m: MessageValideAction, gestionnaire: &GestionnaireDocuments)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage
 {
     debug!("commande_sauvegader_groupe Consommer commande : {:?}", & m.message);
     let commande: TransactionSauvegarderGroupeUsager = m.message.get_msg().map_contenu()?;
@@ -161,7 +161,7 @@ async fn commande_sauvegader_groupe<M>(middleware: &M, mut m: MessageValideActio
 
 async fn commande_sauvegader_document<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireDocuments)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage
 {
     debug!("commande_sauvegader_document Consommer commande : {:?}", & m.message);
     let commande: TransactionSauvegarderDocument = m.message.get_msg().map_contenu()?;

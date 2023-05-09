@@ -13,6 +13,7 @@ use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, Return
 use millegrilles_common_rust::recepteur_messages::MessageValideAction;
 use millegrilles_common_rust::serde_json::json;
 use millegrilles_common_rust::transactions::Transaction;
+use millegrilles_common_rust::verificateur::VerificateurMessage;
 
 use crate::common::*;
 use crate::constantes::*;
@@ -39,7 +40,7 @@ pub async fn aiguillage_transaction<M, T>(gestionnaire: &GestionnaireDocuments, 
 pub async fn consommer_transaction<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireDocuments)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
 where
-    M: ValidateurX509 + GenerateurMessages + MongoDao,
+    M: ValidateurX509 + GenerateurMessages + MongoDao + VerificateurMessage
 {
     debug!("transactions.consommer_transaction Consommer transaction : {:?}", &m.message);
 
