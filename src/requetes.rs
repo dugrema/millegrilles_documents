@@ -2,6 +2,7 @@ use std::error::Error;
 use log::{debug, error};
 use millegrilles_common_rust::bson::doc;
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
+use millegrilles_common_rust::common_messages::RequeteDechiffrage;
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::formatteur_messages::MessageMilleGrille;
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
@@ -197,10 +198,16 @@ async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValideAction, ges
         .correlation_id(m.correlation_id.expect("correlation"))
         .blocking(false)
         .build();
-    let requete_cles = json!({
-        "liste_hachage_bytes": liste_hachage_bytes,
-        "certificat_rechiffrage": certificat_client,
-    });
+
+    let requete_cles = RequeteDechiffrage {
+        domaine: DOMAINE_NOM.to_string(),
+        liste_hachage_bytes,
+        certificat_rechiffrage: Some(certificat_client),
+    };
+    // let requete_cles = json!({
+    //     "liste_hachage_bytes": liste_hachage_bytes,
+    //     "certificat_rechiffrage": certificat_client,
+    // });
     middleware.transmettre_requete(routage, &requete_cles).await?;
 
     Ok(None)
