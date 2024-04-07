@@ -1,57 +1,62 @@
-use std::error::Error;
 use log::{debug, error};
+
 use millegrilles_common_rust::bson::doc;
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::common_messages::RequeteDechiffrage;
 use millegrilles_common_rust::constantes::*;
-use millegrilles_common_rust::formatteur_messages::MessageMilleGrille;
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
+use millegrilles_common_rust::get_domaine_action;
+use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::MessageMilleGrillesBufferDefault;
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, MongoDao};
-use millegrilles_common_rust::recepteur_messages::MessageValideAction;
+use millegrilles_common_rust::rabbitmq_dao::TypeMessageOut;
+use millegrilles_common_rust::recepteur_messages::MessageValide;
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json::json;
-use millegrilles_common_rust::verificateur::VerificateurMessage;
 use millegrilles_common_rust::tokio_stream::StreamExt;
+use millegrilles_common_rust::error::Error;
+use millegrilles_common_rust::millegrilles_cryptographie::deser_message_buffer;
 
 use crate::common::{DocCategorieUsager, DocDocument, DocGroupeUsager};
 use crate::constantes::*;
 use crate::gestionnaire::GestionnaireDocuments;
 
-pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, gestionnaire: &GestionnaireDocuments)
-    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: ValidateurX509 + GenerateurMessages + MongoDao + VerificateurMessage
+pub async fn consommer_requete<M>(middleware: &M, message: MessageValide, gestionnaire: &GestionnaireDocuments)
+    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+    where M: ValidateurX509 + GenerateurMessages + MongoDao
 {
-    debug!("Consommer requete : {:?}", &message.message);
+    debug!("Consommer requete : {:?}", &message.type_message);
 
-    let user_id = message.get_user_id();
-    let role_prive = message.verifier_roles(vec![RolesCertificats::ComptePrive]);
+    let user_id = message.certificat.get_user_id()?;
+    let role_prive = message.certificat.verifier_roles(vec![RolesCertificats::ComptePrive])?;
 
     if role_prive && user_id.is_some() {
         // Ok, commande usager
-    } else if message.verifier_exchanges(vec![Securite::L2Prive, Securite::L3Protege]) {
+    } else if message.certificat.verifier_exchanges(vec![Securite::L2Prive, Securite::L3Protege])? {
         // Autorisation : On accepte les requetes de 3.protege ou 4.secure
         // Ok
-    } else if message.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
+    } else if message.certificat.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE)? {
         // Ok
     } else {
         Err(format!("consommer_requete autorisation invalide (pas d'un exchange reconnu)"))?
     }
 
-    match message.domaine.as_str() {
+    let (domaine, action) = get_domaine_action!(message.type_message);
+
+    match domaine.as_str() {
         DOMAINE_NOM => {
-            match message.action.as_str() {
+            match action.as_str() {
                 REQUETE_CATEGORIES_USAGER => requete_get_categories_usager(middleware, message, gestionnaire).await,
                 REQUETE_GROUPES_USAGER => requete_get_groupes_usager(middleware, message, gestionnaire).await,
                 REQUETE_GROUPES_CLES => requete_get_groupes_cles(middleware, message, gestionnaire).await,
                 REQUETE_DOCUMENTS_GROUPE => requete_get_documents_groupe(middleware, message, gestionnaire).await,
                 _ => {
-                    error!("Message requete/action inconnue : '{}'. Message dropped.", message.action);
+                    error!("Message requete/action inconnue : '{}'. Message dropped.", action);
                     Ok(None)
                 },
             }
         },
         _ => {
-            error!("Message requete/domaine inconnu : '{}'. Message dropped.", message.domaine);
+            error!("Message requete/domaine inconnu : '{}'. Message dropped.", domaine);
             Ok(None)
         },
     }
@@ -63,16 +68,16 @@ struct RequeteGetCategoriesUsager {
     skip: Option<i32>,
 }
 
-async fn requete_get_categories_usager<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireDocuments)
-    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + VerificateurMessage,
+async fn requete_get_categories_usager<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+    where M: GenerateurMessages + MongoDao
 {
     debug!("requete_get_categories_usager Message : {:?}", & m.message);
-    let requete: RequeteGetCategoriesUsager = m.message.get_msg().map_contenu()?;
+    let requete: RequeteGetCategoriesUsager = deser_message_buffer!(m.message);
 
-    let user_id = match m.get_user_id() {
+    let user_id = match m.certificat.get_user_id()? {
         Some(u) => u,
-        None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "msg": "Access denied"}), None)?))
+        None => return Ok(Some(middleware.reponse_err(None, None, Some("Access denied"))?))
     };
 
     let limit = match requete.limit {
@@ -100,7 +105,7 @@ async fn requete_get_categories_usager<M>(middleware: &M, m: MessageValideAction
     };
 
     let reponse = json!({ "categories": categories });
-    Ok(Some(middleware.formatter_reponse(&reponse, None)?))
+    Ok(Some(middleware.build_reponse(&reponse)?.0))
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -109,16 +114,16 @@ struct RequeteGetGroupesUsager {
     skip: Option<i32>,
 }
 
-async fn requete_get_groupes_usager<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireDocuments)
-    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + VerificateurMessage,
+async fn requete_get_groupes_usager<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+    where M: GenerateurMessages + MongoDao
 {
-    debug!("requete_get_groupes_usager Message : {:?}", & m.message);
-    let requete: RequeteGetGroupesUsager = m.message.get_msg().map_contenu()?;
+    debug!("requete_get_groupes_usager Message : {:?}", & m.type_message);
+    let requete: RequeteGetGroupesUsager = deser_message_buffer!(m.message);
 
-    let user_id = match m.get_user_id() {
+    let user_id = match m.certificat.get_user_id()? {
         Some(u) => u,
-        None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "msg": "Access denied"}), None)?))
+        None => return Ok(Some(middleware.reponse_err(None, None, Some("Access denied"))?))
     };
 
     let limit = match requete.limit {
@@ -146,7 +151,7 @@ async fn requete_get_groupes_usager<M>(middleware: &M, m: MessageValideAction, g
     };
 
     let reponse = json!({ "groupes": liste_groupes });
-    Ok(Some(middleware.formatter_reponse(&reponse, None)?))
+    Ok(Some(middleware.build_reponse(&reponse)?.0))
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -159,24 +164,19 @@ struct HachageBytesMapping {
     ref_hachage_bytes: String
 }
 
-async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireDocuments)
-    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + VerificateurMessage,
+async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+    where M: GenerateurMessages + MongoDao
 {
-    debug!("requete_get_groupes_cles Message : {:?}", & m.message);
-    let requete: RequeteGetGroupesCles = m.message.get_msg().map_contenu()?;
+    debug!("requete_get_groupes_cles Message : {:?}", & m.type_message);
+    let requete: RequeteGetGroupesCles = deser_message_buffer!(m.message);
 
-    let user_id = match m.get_user_id() {
+    let user_id = match m.certificat.get_user_id()? {
         Some(u) => u,
-        None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "msg": "Access denied"}), None)?))
+        None => return Ok(Some(middleware.reponse_err(None, None, Some("Access denied"))?))
     };
 
-    let certificat_client: Vec<String> = match m.message.certificat {
-        Some(c) => {
-            c.get_pem_vec().iter().map(|c| c.pem.to_owned()).collect()
-        },
-        None => Err(format!("requetes.requete_get_groupes_cles Certificat manquant"))?
-    };
+    let certificat_client = m.certificat.chaine_pem()?;
 
     let filtre = doc! {
         "user_id": &user_id,
@@ -191,11 +191,25 @@ async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValideAction, ges
         liste_hachage_bytes.push(valeur.ref_hachage_bytes);
     }
 
+    let (reply_to, correlation_id) = match m.type_message {
+        TypeMessageOut::Requete(r) => {
+            let reply_to = match r.reply_to {
+                Some(inner) => inner,
+                None => Err(Error::Str("requete_get_groupes_cles Pas de reply_to, skip"))?
+            };
+            let correlation_id = match r.correlation_id {
+                Some(inner) => inner,
+                None => Err(Error::Str("requete_get_groupes_cles Pas de correlation_id, skip"))?
+            };
+            (reply_to, correlation_id)
+        },
+        _ => Err(Error::Str("requete_get_groupes_cles Mauvais type de message, doit etre requete"))?
+    };
+
     // Creer nouvelle requete pour MaitreDesCles, rediriger vers client
-    let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, MAITREDESCLES_REQUETE_DECHIFFRAGE)
-        .exchanges(vec![Securite::L4Secure])
-        .reply_to(m.reply_q.expect("reply_to"))
-        .correlation_id(m.correlation_id.expect("correlation"))
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, MAITREDESCLES_REQUETE_DECHIFFRAGE, vec![Securite::L4Secure])
+        .reply_to(reply_to)
+        .correlation_id(correlation_id)
         .blocking(false)
         .build();
 
@@ -204,10 +218,7 @@ async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValideAction, ges
         liste_hachage_bytes,
         certificat_rechiffrage: Some(certificat_client),
     };
-    // let requete_cles = json!({
-    //     "liste_hachage_bytes": liste_hachage_bytes,
-    //     "certificat_rechiffrage": certificat_client,
-    // });
+
     middleware.transmettre_requete(routage, &requete_cles).await?;
 
     Ok(None)
@@ -221,16 +232,16 @@ struct RequeteGetDocumentsGroupe {
     skip: Option<i32>,
 }
 
-async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireDocuments)
-    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + VerificateurMessage,
+async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+    where M: GenerateurMessages + MongoDao
 {
     debug!("requete_get_documents_groupe Message : {:?}", & m.message);
-    let requete: RequeteGetDocumentsGroupe = m.message.get_msg().map_contenu()?;
+    let requete: RequeteGetDocumentsGroupe = deser_message_buffer!(m.message);
 
-    let user_id = match m.get_user_id() {
+    let user_id = match m.certificat.get_user_id()? {
         Some(u) => u,
-        None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "msg": "Access denied"}), None)?))
+        None => return Ok(Some(middleware.reponse_err(None, None, Some("Access denied"))?))
     };
 
     let limit = match requete.limit {
@@ -258,5 +269,5 @@ async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValideAction,
     };
 
     let reponse = json!({ "documents": liste_documents });
-    Ok(Some(middleware.formatter_reponse(&reponse, None)?))
+    Ok(Some(middleware.build_reponse(&reponse)?.0))
 }

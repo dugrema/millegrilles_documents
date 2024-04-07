@@ -1,45 +1,51 @@
-use std::error::Error;
 use log::{debug, error};
 use millegrilles_common_rust::bson::doc;
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::constantes::*;
-use millegrilles_common_rust::formatteur_messages::MessageMilleGrille;
-use millegrilles_common_rust::generateur_messages::{GenerateurMessages, transmettre_cle_attachee};
-use millegrilles_common_rust::middleware::{ChiffrageFactoryTrait, sauvegarder_traiter_transaction};
+use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
+use millegrilles_common_rust::{get_domaine_action, serde_json};
+use millegrilles_common_rust::middleware::sauvegarder_traiter_transaction;
+use millegrilles_common_rust::millegrilles_cryptographie::chiffrage_cles::CleChiffrageHandler;
+use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{MessageMilleGrillesBufferDefault, MessageMilleGrillesOwned};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, MongoDao};
-use millegrilles_common_rust::recepteur_messages::MessageValideAction;
-use millegrilles_common_rust::serde_json::json;
-use millegrilles_common_rust::verificateur::VerificateurMessage;
+use millegrilles_common_rust::rabbitmq_dao::TypeMessageOut;
+use millegrilles_common_rust::recepteur_messages::{MessageValide, TypeMessage};
+use millegrilles_common_rust::serde_json::{json, Value};
+use millegrilles_common_rust::error::Error;
+use millegrilles_common_rust::messages_generiques::ReponseCommande;
+use millegrilles_common_rust::millegrilles_cryptographie::deser_message_buffer;
 
 use crate::common::*;
 use crate::constantes::*;
 use crate::gestionnaire::GestionnaireDocuments;
 
-pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireDocuments)
-                                   -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + VerificateurMessage + ValidateurX509 + ChiffrageFactoryTrait
+pub async fn consommer_commande<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + CleChiffrageHandler
 {
     debug!("consommer_commande : {:?}", &m.message);
 
-    let user_id = m.get_user_id();
-    let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
+    let user_id = m.certificat.get_user_id()?;
+    let role_prive = m.certificat.verifier_roles(vec![RolesCertificats::ComptePrive])?;
 
     if role_prive && user_id.is_some() {
         // Ok, commande usager
     } else {
-        match m.verifier_exchanges(vec!(Securite::L1Public, Securite::L2Prive, Securite::L3Protege, Securite::L4Secure)) {
+        match m.certificat.verifier_exchanges(vec!(Securite::L1Public, Securite::L2Prive, Securite::L3Protege, Securite::L4Secure))? {
             true => Ok(()),
             false => {
                 // Verifier si on a un certificat delegation globale
-                match m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
+                match m.certificat.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE)? {
                     true => Ok(()),
-                    false => Err(format!("grosfichiers.consommer_commande: Commande autorisation invalide pour message {:?}", m.correlation_id)),
+                    false => Err(format!("grosfichiers.consommer_commande: Commande autorisation invalide pour message {:?}", m.type_message)),
                 }
             }
         }?;
     }
 
-    match m.action.as_str() {
+    let (_, action) = get_domaine_action!(m.type_message);
+
+    match action.as_str() {
         // Commandes
 
         // Transactions
@@ -48,30 +54,30 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
         TRANSACTION_SAUVEGARDER_DOCUMENT => commande_sauvegader_document(middleware, m, gestionnaire).await,
 
         // Commandes inconnues
-        _ => Err(format!("core_backup.consommer_commande: Commande {} inconnue : {}, message dropped", DOMAINE_NOM, m.action))?,
+        _ => Err(format!("core_backup.consommer_commande: Commande {} inconnue : {}, message dropped", DOMAINE_NOM, action))?,
     }
 }
 
-async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireDocuments)
-    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage
+async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+    where M: GenerateurMessages + MongoDao + ValidateurX509
 {
     debug!("commande_sauvegader_categorie Consommer commande : {:?}", & m.message);
-    let commande: TransactionSauvegarderCategorieUsager = m.message.get_msg().map_contenu()?;
+    let commande: TransactionSauvegarderCategorieUsager = deser_message_buffer!(m.message);
 
-    let user_id = match m.get_user_id() {
+    let user_id = match m.certificat.get_user_id()? {
         Some(inner) => inner,
         None => Err(format!("commande_sauvegader_categorie User_id absent du certificat"))?
     };
 
     // Autorisation: Action usager avec compte prive ou delegation globale
-    let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
+    let role_prive = m.certificat.verifier_roles(vec![RolesCertificats::ComptePrive])?;
     if role_prive {
         // Ok
-    } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
+    } else if m.certificat.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE)? {
         // Ok
     } else {
-        Err(format!("commandes.commande_sauvegader_categorie: Commande autorisation invalide pour message {:?}", m.correlation_id))?
+        Err(format!("commandes.commande_sauvegader_categorie: Commande autorisation invalide pour message {:?}", m.type_message))?
     }
 
     // S'assurer qu'il n'y a pas de conflit de version pour la categorie
@@ -86,8 +92,9 @@ async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValideAction
                 if let Some(categorie) = doc_categorie_option {
                     let categorie: DocCategorieUsager = convertir_bson_deserializable(categorie)?;
                     if categorie.version >= version {
-                        let reponse = json!({"ok": false, "err": "Version categorie existe deja"});
-                        return Ok(Some(middleware.formatter_reponse(&reponse, None)?));
+                        // let reponse = json!({"ok": false, "err": "Version categorie existe deja"});
+                        // return Ok(Some(middleware.formatter_reponse(&reponse, None)?));
+                        return Ok(Some(middleware.reponse_err(None, None, Some("Version categorie existe deja"))?))
                     }
                 }
             },
@@ -99,26 +106,26 @@ async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValideAction
     Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
 }
 
-async fn commande_sauvegader_groupe<M>(middleware: &M, mut m: MessageValideAction, gestionnaire: &GestionnaireDocuments)
-    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage
+async fn commande_sauvegader_groupe<M>(middleware: &M, mut m: MessageValide, gestionnaire: &GestionnaireDocuments)
+    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+    where M: GenerateurMessages + MongoDao + ValidateurX509
 {
     debug!("commande_sauvegader_groupe Consommer commande : {:?}", & m.message);
-    let commande: TransactionSauvegarderGroupeUsager = m.message.get_msg().map_contenu()?;
+    let commande: TransactionSauvegarderGroupeUsager = deser_message_buffer!(m.message);
 
-    let user_id = match m.get_user_id() {
+    let user_id = match m.certificat.get_user_id()? {
         Some(inner) => inner,
         None => Err(format!("commande_sauvegader_groupe User_id absent du certificat"))?
     };
 
     // Autorisation: Action usager avec compte prive ou delegation globale
-    let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
+    let role_prive = m.certificat.verifier_roles(vec![RolesCertificats::ComptePrive])?;
     if role_prive {
         // Ok
-    } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
+    } else if m.certificat.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE)? {
         // Ok
     } else {
-        Err(format!("commandes.commande_sauvegader_groupe: Commande autorisation invalide pour message {:?}", m.correlation_id))?
+        Err(format!("commandes.commande_sauvegader_groupe: Commande autorisation invalide pour message {:?}", m.type_message))?
     }
 
     // S'assurer qu'il n'y a pas de conflit de version pour la categorie
@@ -129,14 +136,16 @@ async fn commande_sauvegader_groupe<M>(middleware: &M, mut m: MessageValideActio
         if let Some(groupe) = doc_groupe_option {
             let doc_groupe: DocGroupeUsager = convertir_bson_deserializable(groupe)?;
             if doc_groupe.categorie_id != commande.categorie_id {
-                let reponse = json!({"ok": false, "err": "La categorie ne peut pas etre changee"});
-                return Ok(Some(middleware.formatter_reponse(&reponse, None)?));
+                // let reponse = json!({"ok": false, "err": "La categorie ne peut pas etre changee"});
+                // return Ok(Some(middleware.formatter_reponse(&reponse, None)?));
+                return Ok(Some(middleware.reponse_err(None, None, Some("La categorie ne peut pas etre changee"))?))
             }
         }
     }
 
     // Traiter la cle
-    match m.message.parsed.attachements.take() {
+    let mut message_owned = m.message.parse_to_owned()?;
+    match message_owned.attachements.take() {
         Some(mut attachements) => match attachements.remove("cle") {
             Some(cle) => {
                 if let Some(reponse) = transmettre_cle_attachee(middleware, cle).await? {
@@ -146,12 +155,14 @@ async fn commande_sauvegader_groupe<M>(middleware: &M, mut m: MessageValideActio
             },
             None => {
                 error!("Cle de nouvelle collection manquante (1)");
-                return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Cle manquante"}), None)?));
+                // return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Cle manquante"}), None)?));
+                return Ok(Some(middleware.reponse_err(None, None, Some("Cle manquante"))?))
             }
         },
         None => {
             error!("Cle de nouvelle collection manquante (2)");
-            return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Cle manquante"}), None)?));
+            // return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Cle manquante"}), None)?));
+            return Ok(Some(middleware.reponse_err(None, None, Some("Cle manquante"))?))
         }
     }
 
@@ -159,26 +170,26 @@ async fn commande_sauvegader_groupe<M>(middleware: &M, mut m: MessageValideActio
     Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
 }
 
-async fn commande_sauvegader_document<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireDocuments)
-    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage
+async fn commande_sauvegader_document<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+    where M: GenerateurMessages + MongoDao + ValidateurX509
 {
     debug!("commande_sauvegader_document Consommer commande : {:?}", & m.message);
-    let commande: TransactionSauvegarderDocument = m.message.get_msg().map_contenu()?;
+    let commande: TransactionSauvegarderDocument = deser_message_buffer!(m.message);
 
-    let user_id = match m.get_user_id() {
+    let user_id = match m.certificat.get_user_id()? {
         Some(inner) => inner,
         None => Err(format!("commande_sauvegader_groupe User_id absent du certificat"))?
     };
 
     // Autorisation: Action usager avec compte prive ou delegation globale
-    let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
+    let role_prive = m.certificat.verifier_roles(vec![RolesCertificats::ComptePrive])?;
     if role_prive {
         // Ok
-    } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
+    } else if m.certificat.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE)? {
         // Ok
     } else {
-        Err(format!("commandes.commande_sauvegader_document: Commande autorisation invalide pour message {:?}", m.correlation_id))?
+        Err(format!("commandes.commande_sauvegader_document: Commande autorisation invalide pour message {:?}", m.type_message))?
     }
 
     // S'assurer qu'il n'y a pas de conflit de version pour la categorie
@@ -189,12 +200,67 @@ async fn commande_sauvegader_document<M>(middleware: &M, m: MessageValideAction,
         if let Some(groupe) = doc_option {
             let doc_groupe: DocDocument = convertir_bson_deserializable(groupe)?;
             if doc_groupe.groupe_id != commande.groupe_id {
-                let reponse = json!({"ok": false, "err": "Le groupe ne peut pas etre changee"});
-                return Ok(Some(middleware.formatter_reponse(&reponse, None)?));
+                // let reponse = json!({"ok": false, "err": "Le groupe ne peut pas etre changee"});
+                // return Ok(Some(middleware.formatter_reponse(&reponse, None)?));
+                return Ok(Some(middleware.reponse_err(None, None, Some("Le groupe ne peut pas etre changee"))?))
             }
         }
     }
 
     // Traiter la transaction
     Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+}
+
+async fn transmettre_cle_attachee<M>(middleware: &M, cle: Value) -> Result<Option<MessageMilleGrillesBufferDefault>, millegrilles_common_rust::error::Error>
+    where M: ValidateurX509 + GenerateurMessages + MongoDao
+{
+    let mut message_cle: MessageMilleGrillesOwned = serde_json::from_value(cle)?;
+
+    let mut routage_builder = RoutageMessageAction::builder(
+        DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE, vec![Securite::L3Protege])
+        .correlation_id(&message_cle.id)
+        .partition("all");
+
+    match message_cle.attachements.take() {
+        Some(inner) => {
+            if let Some(partition) = inner.get("partition") {
+                if let Some(partition) = partition.as_str() {
+                    // Override la partition
+                    routage_builder = routage_builder.partition(partition);
+                }
+            }
+        },
+        None => ()
+    }
+
+    let routage = routage_builder.build();
+    let type_message = TypeMessageOut::Commande(routage);
+
+    let buffer_message: MessageMilleGrillesBufferDefault = message_cle.try_into()?;
+    let reponse = middleware.emettre_message(type_message, buffer_message).await?;
+
+    match reponse {
+        Some(inner) => match inner {
+            TypeMessage::Valide(reponse) => {
+                let message_ref = reponse.message.parse()?;
+                let contenu = message_ref.contenu()?;
+                let reponse: ReponseCommande = contenu.deserialize()?;
+                if let Some(true) = reponse.ok {
+                    debug!("Cle sauvegardee ok");
+                    Ok(None)
+                } else {
+                    error!("traiter_commande_configurer_consignation Erreur sauvegarde cle : {:?}", reponse);
+                    Ok(Some(middleware.reponse_err(3, reponse.message, reponse.err)?))
+                }
+            },
+            _ => {
+                error!("traiter_commande_configurer_consignation Erreur sauvegarde cle : Mauvais type de reponse");
+                Ok(Some(middleware.reponse_err(2, None, Some("Erreur sauvegarde cle"))?))
+            }
+        },
+        None => {
+            error!("traiter_commande_configurer_consignation Erreur sauvegarde cle : Timeout sur confirmation de sauvegarde");
+            Ok(Some(middleware.reponse_err(1, None, Some("Timeout"))?))
+        }
+    }
 }

@@ -1,23 +1,24 @@
-use std::error::Error;
 use std::sync::Arc;
 use log::debug;
 use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::certificats::ValidateurX509;
 use millegrilles_common_rust::configuration::ConfigMessages;
 use millegrilles_common_rust::constantes::*;
+use millegrilles_common_rust::db_structs::TransactionValide;
 use millegrilles_common_rust::domaines::GestionnaireDomaine;
-use millegrilles_common_rust::formatteur_messages::MessageMilleGrille;
 use millegrilles_common_rust::futures::stream::FuturesUnordered;
 use millegrilles_common_rust::generateur_messages::GenerateurMessages;
 use millegrilles_common_rust::messages_generiques::MessageCedule;
 use millegrilles_common_rust::middleware::Middleware;
+use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::MessageMilleGrillesBufferDefault;
 use millegrilles_common_rust::mongo_dao::{ChampIndex, IndexOptions, MongoDao};
 use millegrilles_common_rust::rabbitmq_dao::{ConfigQueue, ConfigRoutingExchange, QueueType};
-use millegrilles_common_rust::recepteur_messages::MessageValideAction;
+use millegrilles_common_rust::recepteur_messages::MessageValide;
 use millegrilles_common_rust::tokio::time::sleep;
-use millegrilles_common_rust::transactions::{TraiterTransaction, Transaction, TransactionImpl};
-use crate::commandes::consommer_commande;
+use millegrilles_common_rust::transactions::{TraiterTransaction, Transaction};
+use millegrilles_common_rust::error::Error;
 
+use crate::commandes::consommer_commande;
 use crate::constantes::*;
 use crate::evenements::consommer_evenement;
 use crate::requetes::consommer_requete;
@@ -37,7 +38,8 @@ impl GestionnaireDocuments {
 
 #[async_trait]
 impl TraiterTransaction for GestionnaireDocuments {
-    async fn appliquer_transaction<M>(&self, middleware: &M, transaction: TransactionImpl) -> Result<Option<MessageMilleGrille>, String>
+    async fn appliquer_transaction<M>(&self, middleware: &M, transaction: TransactionValide)
+        -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
         where M: ValidateurX509 + GenerateurMessages + MongoDao
     {
         aiguillage_transaction(self, middleware, transaction).await
@@ -50,55 +52,55 @@ impl GestionnaireDomaine for GestionnaireDocuments {
 
     fn get_collection_transactions(&self) -> Option<String> { Some(String::from(NOM_COLLECTION_TRANSACTIONS)) }
 
-    fn get_collections_documents(&self) -> Vec<String> {
-        vec![
+    fn get_collections_documents(&self) -> Result<Vec<String>, Error> {
+        Ok(vec![
             String::from(NOM_COLLECTION_DOCUMENTS_USAGERS),
             String::from(NOM_COLLECTION_CATEGORIES_USAGERS),
             String::from(NOM_COLLECTION_CATEGORIES_USAGERS_VERSION),
             String::from(NOM_COLLECTION_GROUPES_USAGERS),
-        ]
+        ])
     }
 
-    fn get_q_transactions(&self) -> Option<String> { Some(String::from(NOM_Q_TRANSACTIONS)) }
+    fn get_q_transactions(&self) -> Result<Option<String>, Error> { Ok(Some(String::from(NOM_Q_TRANSACTIONS))) }
 
-    fn get_q_volatils(&self) -> Option<String> { Some(String::from(NOM_Q_VOLATILS)) }
+    fn get_q_volatils(&self) -> Result<Option<String>, Error> { Ok(Some(String::from(NOM_Q_VOLATILS))) }
 
-    fn get_q_triggers(&self) -> Option<String> { Some(String::from(NOM_Q_TRIGGERS)) }
+    fn get_q_triggers(&self) -> Result<Option<String>, Error> { Ok(Some(String::from(NOM_Q_TRIGGERS))) }
 
-    fn preparer_queues(&self) -> Vec<QueueType> { preparer_queues() }
+    fn preparer_queues(&self) -> Result<Vec<QueueType>, Error> { Ok(preparer_queues()) }
 
     fn chiffrer_backup(&self) -> bool {
         true
     }
 
-    async fn preparer_database<M>(&self, middleware: &M) -> Result<(), String>
+    async fn preparer_database<M>(&self, middleware: &M) -> Result<(), Error>
         where M: MongoDao + ConfigMessages
     {
         preparer_index_mongodb_custom(middleware).await
     }
 
-    async fn consommer_requete<M>(&self, middleware: &M, message: MessageValideAction)
-                                  -> Result<Option<MessageMilleGrille>, Box<dyn Error>> where M: Middleware + 'static
+    async fn consommer_requete<M>(&self, middleware: &M, message: MessageValide)
+                                  -> Result<Option<MessageMilleGrillesBufferDefault>, Error> where M: Middleware + 'static
     {
         consommer_requete(middleware, message, &self).await
     }
 
-    async fn consommer_commande<M>(&self, middleware: &M, message: MessageValideAction)
-                                   -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    async fn consommer_commande<M>(&self, middleware: &M, message: MessageValide)
+                                   -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
         where M: Middleware + 'static
     {
         consommer_commande(middleware, message, &self).await
     }
 
-    async fn consommer_transaction<M>(&self, middleware: &M, message: MessageValideAction)
-                                      -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    async fn consommer_transaction<M>(&self, middleware: &M, message: MessageValide)
+                                      -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
         where M: Middleware + 'static
     {
         consommer_transaction(middleware, message, self).await
     }
 
-    async fn consommer_evenement<M>(self: &'static Self, middleware: &M, message: MessageValideAction)
-                                    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    async fn consommer_evenement<M>(self: &'static Self, middleware: &M, message: MessageValide)
+                                    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
         where M: Middleware + 'static
     {
         consommer_evenement(self, middleware, message).await
@@ -109,15 +111,15 @@ impl GestionnaireDomaine for GestionnaireDocuments {
     }
 
     async fn traiter_cedule<M>(self: &'static Self, middleware: &M, trigger: &MessageCedule)
-                               -> Result<(), Box<dyn Error>>
+                               -> Result<(), Error>
         where M: Middleware + 'static
     {
         traiter_cedule(self, middleware, trigger).await
     }
 
-    async fn aiguillage_transaction<M, T>(&self, middleware: &M, transaction: T)
-                                          -> Result<Option<MessageMilleGrille>, String>
-        where M: ValidateurX509 + GenerateurMessages + MongoDao, T: Transaction
+    async fn aiguillage_transaction<M>(&self, middleware: &M, transaction: TransactionValide)
+        -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+        where M: ValidateurX509 + GenerateurMessages + MongoDao
     {
         aiguillage_transaction(self, middleware, transaction).await
     }
@@ -191,7 +193,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
 }
 
 /// Creer index MongoDB
-pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), String>
+pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Error>
     where M: MongoDao + ConfigMessages
 {
     // Index categorie_id / user_id pour categories_usager
@@ -240,7 +242,7 @@ pub async fn entretien<M>(_gestionnaire: &GestionnaireDocuments, _middleware: Ar
 }
 
 pub async fn traiter_cedule<M>(gestionnaire: &GestionnaireDocuments, middleware: &M, trigger: &MessageCedule)
-                               -> Result<(), Box<dyn Error>>
+                               -> Result<(), Error>
     where M: Middleware + 'static
 {
     debug!("Traiter cedule {}", DOMAINE_NOM);

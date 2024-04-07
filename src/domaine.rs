@@ -3,7 +3,7 @@ use log::{debug, error, info, warn};
 use millegrilles_common_rust::chrono;
 use millegrilles_common_rust::domaines::GestionnaireDomaine;
 use millegrilles_common_rust::futures::stream::FuturesUnordered;
-use millegrilles_common_rust::middleware::Middleware;
+use millegrilles_common_rust::middleware::{charger_certificats_chiffrage, Middleware};
 use millegrilles_common_rust::middleware_db::{MiddlewareDb, preparer_middleware_db};
 use millegrilles_common_rust::tokio::spawn;
 use millegrilles_common_rust::tokio::task::JoinHandle;
@@ -125,11 +125,12 @@ async fn entretien<M>(gestionnaires: Vec<&'static TypeGestionnaire>, middleware:
         debug!("domaines_messagerie.entretien  Execution task d'entretien Core {:?}", maintenant);
 
         if prochain_chargement_certificats_maitredescles < maintenant {
-            match middleware.charger_certificats_chiffrage(middleware.as_ref()).await {
+            match charger_certificats_chiffrage(middleware.as_ref()).await {
                 Ok(()) => {
                     prochain_chargement_certificats_maitredescles = maintenant + intervalle_chargement_certificats_maitredescles;
+                    debug!("domaines_messagerie.entretien Prochain chargement cert maitredescles: {:?}", prochain_chargement_certificats_maitredescles);
                 },
-                Err(e) => info!("Erreur chargement certificats de maitre des cles tiers : {:?}", e)
+                Err(e) => warn!("domaines_core.entretien Erreur chargement certificats de maitre des cles : {:?}", e)
             }
         }
 

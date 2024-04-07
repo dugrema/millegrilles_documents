@@ -1,86 +1,84 @@
-use std::error::Error;
 use log::{debug, error};
+
 use millegrilles_common_rust::bson::{Bson, doc};
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::chrono::Utc;
 use millegrilles_common_rust::common_messages::verifier_reponse_ok;
 use millegrilles_common_rust::constantes::*;
-use millegrilles_common_rust::formatteur_messages::MessageMilleGrille;
+use millegrilles_common_rust::db_structs::TransactionValide;
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
+use millegrilles_common_rust::{get_domaine_action, serde_json};
 use millegrilles_common_rust::middleware::sauvegarder_traiter_transaction;
+use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::MessageMilleGrillesBufferDefault;
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, convertir_to_bson_array, MongoDao};
 use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, ReturnDocument, UpdateOptions};
-use millegrilles_common_rust::recepteur_messages::MessageValideAction;
+use millegrilles_common_rust::rabbitmq_dao::TypeMessageOut;
+use millegrilles_common_rust::recepteur_messages::MessageValide;
 use millegrilles_common_rust::serde_json::json;
 use millegrilles_common_rust::transactions::Transaction;
-use millegrilles_common_rust::verificateur::VerificateurMessage;
+use millegrilles_common_rust::error::Error;
 
 use crate::common::*;
 use crate::constantes::*;
 use crate::gestionnaire::GestionnaireDocuments;
 
-pub async fn aiguillage_transaction<M, T>(gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: T)
-    -> Result<Option<MessageMilleGrille>, String>
-    where
-        M: ValidateurX509 + GenerateurMessages + MongoDao,
-        T: Transaction
+pub async fn aiguillage_transaction<M>(gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: TransactionValide)
+    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+    where M: ValidateurX509 + GenerateurMessages + MongoDao
 {
-    let action = match transaction.get_routage().action.as_ref() {
-        Some(inner) => inner.as_str(),
-        None => Err(format!("transactions.aiguillage_transaction: Transaction {} n'a pas d'action - skip", transaction.get_uuid_transaction()))?,
+    let action = match transaction.transaction.routage.as_ref() {
+        Some(inner) => match inner.action.as_ref() {
+            Some(inner) => inner.clone(),
+            None => Err(format!("transactions.aiguillage_transaction: Transaction {} n'a pas d'action - skip", transaction.transaction.id))?,
+        },
+        None => Err(format!("transactions.aiguillage_transaction: Transaction {} n'a pas de routage - skip", transaction.transaction.id))?,
     };
-    match action {
+    match action.as_str() {
         TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER => transaction_sauvegarder_categorie_usager(gestionnaire, middleware, transaction).await,
         TRANSACTION_SAUVEGARDER_GROUPE_USAGER => transaction_sauvegarder_groupe_usager(gestionnaire, middleware, transaction).await,
         TRANSACTION_SAUVEGARDER_DOCUMENT => transaction_sauvegarder_document(gestionnaire, middleware, transaction).await,
-        _ => Err(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.get_uuid_transaction(), action)),
+        _ => Err(Error::String(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.transaction.id, action))),
     }
 }
 
-pub async fn consommer_transaction<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireDocuments)
-    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+pub async fn consommer_transaction<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
 where
-    M: ValidateurX509 + GenerateurMessages + MongoDao + VerificateurMessage
+    M: ValidateurX509 + GenerateurMessages + MongoDao
 {
-    debug!("transactions.consommer_transaction Consommer transaction : {:?}", &m.message);
+    debug!("transactions.consommer_transaction Consommer transaction : {:?}", &m.type_message);
+
+    let (_, action) = get_domaine_action!(m.type_message);
 
     // Autorisation
-    match m.action.as_str() {
+    match action.as_str() {
         // 4.secure - doivent etre validees par une commande
         TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER |
         TRANSACTION_SAUVEGARDER_GROUPE_USAGER |
         TRANSACTION_SAUVEGARDER_DOCUMENT => {
-            match m.verifier_exchanges(vec![Securite::L4Secure]) {
+            match m.certificat.verifier_exchanges(vec![Securite::L4Secure])? {
                 true => Ok(()),
                 false => Err(format!("transactions.consommer_transaction: Message autorisation invalide (pas 4.secure)"))
             }?;
         },
-        _ => Err(format!("transactions.consommer_transaction: Mauvais type d'action pour une transaction : {}", m.action))?,
+        _ => Err(format!("transactions.consommer_transaction: Mauvais type d'action pour une transaction : {}", action))?,
     }
 
     Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
 }
 
-async fn transaction_sauvegarder_categorie_usager<M,T>(gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: T)
-    -> Result<Option<MessageMilleGrille>, String>
-    where
-        M: GenerateurMessages + MongoDao,
-        T: Transaction
+async fn transaction_sauvegarder_categorie_usager<M>(gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: TransactionValide)
+    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+    where M: GenerateurMessages + MongoDao
 {
-    debug!("transaction_sauvegarder_categorie_usager Consommer transaction : {:?}", &transaction);
-    let uuid_transaction = transaction.get_uuid_transaction().to_owned();
-    let user_id = match transaction.get_enveloppe_certificat() {
-        Some(e) => match e.get_user_id()? {
-            Some(inner) => inner.to_owned(),
-            None => Err(format!("transactions.transaction_sauvegarder_categorie_usager User_id absent du certificat (cert)"))?
-        },
-        None => Err(format!("transactions.transaction_sauvegarder_categorie_usager User_id absent du certificat (enveloppe)"))?
+    debug!("transaction_sauvegarder_categorie_usager Consommer transaction : {:?}", transaction.transaction.id);
+    let uuid_transaction = transaction.transaction.id.clone();
+    let user_id = match transaction.certificat.get_user_id()? {
+        Some(inner) => inner.to_owned(),
+        None => Err(format!("transactions.transaction_sauvegarder_categorie_usager User_id absent du certificat (cert)"))?
     };
 
-    let transaction_categorie: TransactionSauvegarderCategorieUsager = match transaction.convertir() {
-        Ok(t) => t,
-        Err(e) => Err(format!("transactions.transaction_sauvegarder_categorie_usager Erreur conversion transaction : {:?}", e))?
-    };
+    let transaction_categorie: TransactionSauvegarderCategorieUsager = serde_json::from_str(transaction.transaction.contenu.as_str())?;
 
     let categorie_id = if let Some(categorie_id) = transaction_categorie.categorie_id {
         categorie_id
@@ -165,50 +163,45 @@ async fn transaction_sauvegarder_categorie_usager<M,T>(gestionnaire: &Gestionnai
         };
 
         if resultat.modified_count != 1 && resultat.upserted_id.is_none() {
-            let reponse = json!({ "ok": false, "err": "Erreur insertion categorieVersion" });
-            error!("transactions.transaction_sauvegarder_categorie_usager {:?} : {:?}", reponse, resultat);
-            match middleware.formatter_reponse(reponse, None) {
-                Ok(r) => return Ok(Some(r)),
-                Err(e) => Err(format!("transaction_poster Erreur preparation confirmat envoi message {} : {:?}", uuid_transaction, e))?
-            }
+            // let reponse = json!({ "ok": false, "err": "Erreur insertion categorieVersion" });
+            error!("transactions.transaction_sauvegarder_categorie_usager {:?}", resultat);
+            // match middleware.formatter_reponse(reponse, None) {
+            //     Ok(r) => return Ok(Some(r)),
+            //     Err(e) => Err(format!("transaction_poster Erreur preparation confirmat envoi message {} : {:?}", uuid_transaction, e))?
+            // }
+            return Ok(Some(middleware.reponse_err(None, None, Some("Erreur insertion categorieVersion"))?))
         }
     }
 
     // Emettre evenement maj
-    let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER)
-        .exchanges(vec![Securite::L2Prive])
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER, vec![Securite::L2Prive])
         .partition(user_id)
         .build();
     middleware.emettre_evenement(routage, &document_categorie).await?;
 
-    let reponse = json!({ "ok": true });
-    match middleware.formatter_reponse(reponse, None) {
-        Ok(r) => Ok(Some(r)),
-        Err(e) => Err(format!("transactions.transaction_sauvegarder_categorie_usager Erreur preparation confirmat envoi message {} : {:?}", uuid_transaction, e))
-    }
-
+    Ok(Some(middleware.reponse_ok(None, None)?))
+    // let reponse = json!({ "ok": true });
+    // match middleware.formatter_reponse(reponse, None) {
+    //     Ok(r) => Ok(Some(r)),
+    //     Err(e) => Err(format!("transactions.transaction_sauvegarder_categorie_usager Erreur preparation confirmat envoi message {} : {:?}", uuid_transaction, e))
+    // }
 }
 
-async fn transaction_sauvegarder_groupe_usager<M,T>(gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: T)
-    -> Result<Option<MessageMilleGrille>, String>
-    where
-        M: GenerateurMessages + MongoDao,
-        T: Transaction
+async fn transaction_sauvegarder_groupe_usager<M>(gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: TransactionValide)
+    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+    where M: GenerateurMessages + MongoDao
 {
-    debug!("transaction_sauvegarder_groupe_usager Consommer transaction : {:?}", &transaction);
-    let uuid_transaction = transaction.get_uuid_transaction().to_owned();
-    let user_id = match transaction.get_enveloppe_certificat() {
-        Some(e) => match e.get_user_id()? {
-            Some(inner) => inner.to_owned(),
-            None => Err(format!("transactions.transaction_sauvegarder_groupe_usager User_id absent du certificat (cert)"))?
-        },
-        None => Err(format!("transactions.transaction_sauvegarder_groupe_usager User_id absent du certificat (enveloppe)"))?
+    debug!("transaction_sauvegarder_groupe_usager Consommer transaction : {:?}", &transaction.transaction.id);
+    let uuid_transaction = transaction.transaction.id.clone();
+    let user_id = match transaction.certificat.get_user_id()? {
+        Some(inner) => inner.to_owned(),
+        None => Err(Error::Str("transactions.transaction_sauvegarder_groupe_usager User_id absent du certificat (cert)"))?
     };
 
 
-    let transaction_groupe: TransactionSauvegarderGroupeUsager = match transaction.convertir() {
+    let transaction_groupe: TransactionSauvegarderGroupeUsager = match serde_json::from_str(transaction.transaction.contenu.as_str()) {
         Ok(t) => t,
-        Err(e) => Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur conversion transaction : {:?}", e))?
+        Err(e) => Err(Error::String(format!("transactions.transaction_sauvegarder_groupe_usager Erreur conversion transaction : {:?}", e)))?
     };
 
     // if middleware.get_mode_regeneration() == false {
@@ -241,10 +234,10 @@ async fn transaction_sauvegarder_groupe_usager<M,T>(gestionnaire: &GestionnaireD
         CHAMP_CREATION: Utc::now(),
     };
 
-    let bson_format: Bson = transaction_groupe.format.into();
+    let format_str: &str = transaction_groupe.format.into();
     let set_ops = doc! {
         "data_chiffre": transaction_groupe.data_chiffre,
-        "format": bson_format,
+        "format": format_str,
         "header": transaction_groupe.header,
         "ref_hachage_bytes": transaction_groupe.ref_hachage_bytes,
     };
@@ -282,37 +275,31 @@ async fn transaction_sauvegarder_groupe_usager<M,T>(gestionnaire: &GestionnaireD
     };
 
     // Emettre evenement maj
-    let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_SAUVEGARDER_GROUPE_USAGER)
-        .exchanges(vec![Securite::L2Prive])
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_SAUVEGARDER_GROUPE_USAGER, vec![Securite::L2Prive])
         .partition(user_id)
         .build();
     middleware.emettre_evenement(routage, &document_groupe).await?;
 
-    let reponse = json!({ "ok": true });
-    match middleware.formatter_reponse(reponse, None) {
-        Ok(r) => Ok(Some(r)),
-        Err(e) => Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur preparation confirmat envoi message {} : {:?}", uuid_transaction, e))
-    }
-
+    Ok(Some(middleware.reponse_ok(None, None)?))
+    // let reponse = json!({ "ok": true });
+    // match middleware.formatter_reponse(reponse, None) {
+    //     Ok(r) => Ok(Some(r)),
+    //     Err(e) => Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur preparation confirmat envoi message {} : {:?}", uuid_transaction, e))
+    // }
 }
 
-async fn transaction_sauvegarder_document<M,T>(gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: T)
-    -> Result<Option<MessageMilleGrille>, String>
-    where
-        M: GenerateurMessages + MongoDao,
-        T: Transaction
+async fn transaction_sauvegarder_document<M>(gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: TransactionValide)
+    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+    where M: GenerateurMessages + MongoDao
 {
-    debug!("transaction_sauvegarder_document Consommer transaction : {:?}", &transaction);
-    let uuid_transaction = transaction.get_uuid_transaction().to_owned();
-    let user_id = match transaction.get_enveloppe_certificat() {
-        Some(e) => match e.get_user_id()? {
-            Some(inner) => inner.to_owned(),
-            None => Err(format!("transactions.transaction_sauvegarder_document User_id absent du certificat (cert)"))?
-        },
-        None => Err(format!("transactions.transaction_sauvegarder_document User_id absent du certificat (enveloppe)"))?
+    debug!("transaction_sauvegarder_document Consommer transaction : {:?}", &transaction.transaction.id);
+    let uuid_transaction = transaction.transaction.id.clone();
+    let user_id = match transaction.certificat.get_user_id()? {
+        Some(inner) => inner.to_owned(),
+        None => Err(format!("transactions.transaction_sauvegarder_document User_id absent du certificat (cert)"))?
     };
 
-    let transaction_doc: TransactionSauvegarderDocument = match transaction.convertir() {
+    let transaction_doc: TransactionSauvegarderDocument = match serde_json::from_str(transaction.transaction.contenu.as_str()) {
         Ok(t) => t,
         Err(e) => Err(format!("transactions.transaction_sauvegarder_document Erreur conversion transaction : {:?}", e))?
     };
@@ -330,11 +317,11 @@ async fn transaction_sauvegarder_document<M,T>(gestionnaire: &GestionnaireDocume
         CHAMP_CREATION: Utc::now(),
     };
 
-    let bson_format: Bson = transaction_doc.format.into();
+    let format_str: &str = transaction_doc.format.into();
     let set_ops = doc! {
         "categorie_version": transaction_doc.categorie_version,
         "data_chiffre": transaction_doc.data_chiffre,
-        "format": bson_format,
+        "format": format_str,
         "header": transaction_doc.header,
     };
 
@@ -371,16 +358,15 @@ async fn transaction_sauvegarder_document<M,T>(gestionnaire: &GestionnaireDocume
     };
 
     // Emettre evenement maj
-    let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_SAUVEGARDER_DOCUMENT)
-        .exchanges(vec![Securite::L2Prive])
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_SAUVEGARDER_DOCUMENT, vec![Securite::L2Prive])
         .partition(user_id)
         .build();
     middleware.emettre_evenement(routage, &document_doc).await?;
 
-    let reponse = json!({ "ok": true });
-    match middleware.formatter_reponse(reponse, None) {
-        Ok(r) => Ok(Some(r)),
-        Err(e) => Err(format!("transactions.transaction_sauvegarder_document Erreur preparation confirmat envoi message {} : {:?}", uuid_transaction, e))
-    }
-
+    Ok(Some(middleware.reponse_ok(None, None)?))
+    // let reponse = json!({ "ok": true });
+    // match middleware.formatter_reponse(reponse, None) {
+    //     Ok(r) => Ok(Some(r)),
+    //     Err(e) => Err(format!("transactions.transaction_sauvegarder_document Erreur preparation confirmat envoi message {} : {:?}", uuid_transaction, e))
+    // }
 }
