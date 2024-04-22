@@ -14,7 +14,9 @@ use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json::json;
 use millegrilles_common_rust::tokio_stream::StreamExt;
 use millegrilles_common_rust::error::Error;
+use millegrilles_common_rust::millegrilles_cryptographie::chiffrage::FormatChiffrage;
 use millegrilles_common_rust::millegrilles_cryptographie::deser_message_buffer;
+use millegrilles_common_rust::millegrilles_cryptographie::chiffrage::formatchiffragestr;
 
 use crate::common::{DocCategorieUsager, DocDocument, DocGroupeUsager};
 use crate::constantes::*;
@@ -156,12 +158,31 @@ async fn requete_get_groupes_usager<M>(middleware: &M, m: MessageValide, gestion
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct RequeteGetGroupesCles {
-    liste_hachage_bytes: Vec<String>,
+    // liste_hachage_bytes: Vec<String>,
+    cle_ids: Vec<String>
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct HachageBytesMapping {
-    ref_hachage_bytes: String
+// #[derive(Clone, Debug, Serialize, Deserialize)]
+// struct HachageBytesMapping {
+//     ref_hachage_bytes: String
+// }
+
+#[derive(Clone, Serialize, Deserialize)]
+struct GroupeUsager {
+    groupe_id: String,
+    user_id: String,
+    categorie_id: String,
+
+    // Contenu chiffre
+    data_chiffre: String,
+    #[serde(with="formatchiffragestr")]
+    format: FormatChiffrage,
+    nonce: Option<String>,
+    cle_id: Option<String>,
+
+    // Ancienne approche chiffrage (obsolete)
+    header: Option<String>,
+    ref_hachage_bytes: Option<String>,
 }
 
 async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
@@ -180,15 +201,36 @@ async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValide, gestionna
 
     let filtre = doc! {
         "user_id": &user_id,
-        "ref_hachage_bytes": {"$in": &requete.liste_hachage_bytes}
+        "$or": [
+            {"ref_hachage_bytes": {"$in": &requete.cle_ids}},
+            {"cle_id": {"$in": &requete.cle_ids}},
+        ]
     };
-    let collection = middleware.get_collection(NOM_COLLECTION_GROUPES_USAGERS)?;
+    let collection = middleware.get_collection_typed::<GroupeUsager>(NOM_COLLECTION_GROUPES_USAGERS)?;
     let mut curseur = collection.find(filtre, None).await?;
 
-    let mut liste_hachage_bytes = Vec::new();
+    let mut cle_ids = Vec::new();
     while let Some(row) = curseur.next().await {
-        let valeur: HachageBytesMapping = convertir_bson_deserializable(row?)?;
-        liste_hachage_bytes.push(valeur.ref_hachage_bytes);
+        let groupe_usager = match row {
+            Ok(inner) => inner,
+            Err(e) => {
+                error!("Erreur mapping groupe usager, skip");
+                continue
+            }
+        };
+
+        let cle_id = match groupe_usager.cle_id {
+            Some(inner) => inner,
+            None => match groupe_usager.ref_hachage_bytes {
+                Some(inner) => inner,
+                None => {
+                    error!("Aucun cle_id/ref_hachage_bytes pour groupe {}, skip", groupe_usager.groupe_id);
+                    continue
+                }
+            }
+        };
+
+        cle_ids.push(cle_id);
     }
 
     let (reply_to, correlation_id) = match m.type_message {
@@ -207,7 +249,9 @@ async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValide, gestionna
     };
 
     // Creer nouvelle requete pour MaitreDesCles, rediriger vers client
-    let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, MAITREDESCLES_REQUETE_DECHIFFRAGE, vec![Securite::L4Secure])
+    let routage = RoutageMessageAction::builder(
+        DOMAINE_NOM_MAITREDESCLES, MAITREDESCLES_REQUETE_DECHIFFRAGE_V2, vec![Securite::L3Protege]
+    )
         .reply_to(reply_to)
         .correlation_id(correlation_id)
         .blocking(false)
@@ -215,7 +259,8 @@ async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValide, gestionna
 
     let requete_cles = RequeteDechiffrage {
         domaine: DOMAINE_NOM.to_string(),
-        liste_hachage_bytes,
+        liste_hachage_bytes: None,
+        cle_ids: Some(cle_ids),
         certificat_rechiffrage: Some(certificat_client),
     };
 

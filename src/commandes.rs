@@ -6,7 +6,7 @@ use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageM
 use millegrilles_common_rust::{get_domaine_action, serde_json};
 use millegrilles_common_rust::middleware::sauvegarder_traiter_transaction;
 use millegrilles_common_rust::millegrilles_cryptographie::chiffrage_cles::CleChiffrageHandler;
-use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{MessageMilleGrillesBufferDefault, MessageMilleGrillesOwned};
+use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{MessageMilleGrillesBufferDefault, MessageMilleGrillesOwned, MessageValidable};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, MongoDao};
 use millegrilles_common_rust::rabbitmq_dao::TypeMessageOut;
 use millegrilles_common_rust::recepteur_messages::{MessageValide, TypeMessage};
@@ -50,8 +50,8 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValide, gestionnair
 
         // Transactions
         TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER => commande_sauvegader_categorie(middleware, m, gestionnaire).await,
-        TRANSACTION_SAUVEGARDER_GROUPE_USAGER => commande_sauvegader_groupe(middleware, m, gestionnaire).await,
-        TRANSACTION_SAUVEGARDER_DOCUMENT => commande_sauvegader_document(middleware, m, gestionnaire).await,
+        TRANSACTION_SAUVEGARDER_GROUPE_USAGER => commande_sauvegarder_groupe(middleware, m, gestionnaire).await,
+        TRANSACTION_SAUVEGARDER_DOCUMENT => commande_sauvegarder_document(middleware, m, gestionnaire).await,
 
         // Commandes inconnues
         _ => Err(format!("core_backup.consommer_commande: Commande {} inconnue : {}, message dropped", DOMAINE_NOM, action))?,
@@ -106,8 +106,8 @@ async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValide, gest
     Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
 }
 
-async fn commande_sauvegader_groupe<M>(middleware: &M, mut m: MessageValide, gestionnaire: &GestionnaireDocuments)
-    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+async fn commande_sauvegarder_groupe<M>(middleware: &M, mut m: MessageValide, gestionnaire: &GestionnaireDocuments)
+                                        -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
     debug!("commande_sauvegader_groupe Consommer commande : {:?}", & m.message);
@@ -148,7 +148,10 @@ async fn commande_sauvegader_groupe<M>(middleware: &M, mut m: MessageValide, ges
     match message_owned.attachements.take() {
         Some(mut attachements) => match attachements.remove("cle") {
             Some(cle) => {
-                if let Some(reponse) = transmettre_cle_attachee(middleware, cle).await? {
+                let mut message_cle: MessageMilleGrillesOwned = serde_json::from_value(cle)?;
+                message_cle.verifier_signature()?;
+
+                if let Some(reponse) = transmettre_cle_attachee(middleware, message_cle).await? {
                     error!("Erreur sauvegarde cle : {:?}", reponse);
                     return Ok(Some(reponse));
                 }
@@ -170,16 +173,16 @@ async fn commande_sauvegader_groupe<M>(middleware: &M, mut m: MessageValide, ges
     Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
 }
 
-async fn commande_sauvegader_document<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
-    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+async fn commande_sauvegarder_document<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+                                          -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
-    debug!("commande_sauvegader_document Consommer commande : {:?}", & m.message);
+    debug!("commande_sauvegarder_document Consommer commande : {:?}", & m.message);
     let commande: TransactionSauvegarderDocument = deser_message_buffer!(m.message);
 
     let user_id = match m.certificat.get_user_id()? {
         Some(inner) => inner,
-        None => Err(format!("commande_sauvegader_groupe User_id absent du certificat"))?
+        None => Err(format!("commande_sauvegarder_document User_id absent du certificat"))?
     };
 
     // Autorisation: Action usager avec compte prive ou delegation globale
@@ -189,7 +192,7 @@ async fn commande_sauvegader_document<M>(middleware: &M, m: MessageValide, gesti
     } else if m.certificat.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE)? {
         // Ok
     } else {
-        Err(format!("commandes.commande_sauvegader_document: Commande autorisation invalide pour message {:?}", m.type_message))?
+        Err(format!("commandes.commande_sauvegarder_document: Commande autorisation invalide pour message {:?}", m.type_message))?
     }
 
     // S'assurer qu'il n'y a pas de conflit de version pour la categorie
@@ -211,29 +214,15 @@ async fn commande_sauvegader_document<M>(middleware: &M, m: MessageValide, gesti
     Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
 }
 
-async fn transmettre_cle_attachee<M>(middleware: &M, cle: Value) -> Result<Option<MessageMilleGrillesBufferDefault>, millegrilles_common_rust::error::Error>
+async fn transmettre_cle_attachee<M>(middleware: &M, message_cle: MessageMilleGrillesOwned)
+    -> Result<Option<MessageMilleGrillesBufferDefault>, millegrilles_common_rust::error::Error>
     where M: ValidateurX509 + GenerateurMessages + MongoDao
 {
-    let mut message_cle: MessageMilleGrillesOwned = serde_json::from_value(cle)?;
-
-    let mut routage_builder = RoutageMessageAction::builder(
-        DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE, vec![Securite::L3Protege])
+    let routage = RoutageMessageAction::builder(
+        DOMAINE_NOM_MAITREDESCLES, COMMANDE_AJOUTER_CLE_DOMAINES, vec![Securite::L1Public])
         .correlation_id(&message_cle.id)
-        .partition("all");
+        .build();
 
-    match message_cle.attachements.take() {
-        Some(inner) => {
-            if let Some(partition) = inner.get("partition") {
-                if let Some(partition) = partition.as_str() {
-                    // Override la partition
-                    routage_builder = routage_builder.partition(partition);
-                }
-            }
-        },
-        None => ()
-    }
-
-    let routage = routage_builder.build();
     let type_message = TypeMessageOut::Commande(routage);
 
     let buffer_message: MessageMilleGrillesBufferDefault = message_cle.try_into()?;

@@ -34,12 +34,15 @@ pub struct TransactionSauvegarderGroupeUsager {
     pub groupe_id: Option<String>,
     pub categorie_id: String,
     pub data_chiffre: String,
+
+    pub cle_id: Option<String>,
     #[serde(with="formatchiffragestr")]
     pub format: FormatChiffrage,
-    pub header: String,
-    pub ref_hachage_bytes: String,
-    // #[serde(rename="_commandeMaitrecles", skip_serializing_if = "Option::is_none")]
-    // pub commande_maitredescles: Option<CommandeSauvegarderCle>,
+    pub nonce: Option<String>,
+
+    // Ancien format de chiffrage (obsolete)
+    pub header: Option<String>,
+    pub ref_hachage_bytes: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -47,10 +50,15 @@ pub struct DocGroupeUsager {
     pub groupe_id: String,
     pub categorie_id: String,
     pub data_chiffre: String,
+
+    pub cle_id: Option<String>,
     #[serde(with="formatchiffragestr")]
     pub format: FormatChiffrage,
-    pub header: String,
-    pub ref_hachage_bytes: String,
+    pub nonce: Option<String>,
+
+    // Ancien format de chiffrage (obsolete)
+    pub header: Option<String>,
+    pub ref_hachage_bytes: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -59,9 +67,13 @@ pub struct TransactionSauvegarderDocument {
     pub groupe_id: String,
     pub categorie_version: i32,
     pub data_chiffre: String,
+
+    pub cle_id: Option<String>,
     #[serde(with="formatchiffragestr")]
     pub format: FormatChiffrage,
-    pub header: String,
+    pub nonce: Option<String>,
+
+    pub header: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -70,7 +82,11 @@ pub struct DocDocument {
     pub groupe_id: String,
     pub categorie_version: i32,
     pub data_chiffre: String,
+
+    pub cle_id: Option<String>,
     #[serde(with="formatchiffragestr")]
     pub format: FormatChiffrage,
-    pub header: String,
+    pub nonce: Option<String>,
+
+    pub header: Option<String>,
 }

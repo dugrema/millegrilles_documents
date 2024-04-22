@@ -198,7 +198,6 @@ async fn transaction_sauvegarder_groupe_usager<M>(gestionnaire: &GestionnaireDoc
         None => Err(Error::Str("transactions.transaction_sauvegarder_groupe_usager User_id absent du certificat (cert)"))?
     };
 
-
     let transaction_groupe: TransactionSauvegarderGroupeUsager = match serde_json::from_str(transaction.transaction.contenu.as_str()) {
         Ok(t) => t,
         Err(e) => Err(Error::String(format!("transactions.transaction_sauvegarder_groupe_usager Erreur conversion transaction : {:?}", e)))?
@@ -240,6 +239,8 @@ async fn transaction_sauvegarder_groupe_usager<M>(gestionnaire: &GestionnaireDoc
         "format": format_str,
         "header": transaction_groupe.header,
         "ref_hachage_bytes": transaction_groupe.ref_hachage_bytes,
+        "cle_id": transaction_groupe.cle_id,
+        "nonce": transaction_groupe.nonce,
     };
 
     // Remplacer la version la plus recente
@@ -323,6 +324,8 @@ async fn transaction_sauvegarder_document<M>(gestionnaire: &GestionnaireDocument
         "data_chiffre": transaction_doc.data_chiffre,
         "format": format_str,
         "header": transaction_doc.header,
+        "cle_id": transaction_doc.cle_id,
+        "nonce": transaction_doc.nonce,
     };
 
     // Remplacer la version la plus recente
@@ -338,17 +341,14 @@ async fn transaction_sauvegarder_document<M>(gestionnaire: &GestionnaireDocument
             "$currentDate": {CHAMP_MODIFICATION: true},
         };
 
-        let collection = middleware.get_collection(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
+        let collection = middleware.get_collection_typed::<DocDocument>(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
         let options = FindOneAndUpdateOptions::builder()
             .upsert(true)
             .return_document(ReturnDocument::After)
             .build();
-        let resultat: DocDocument = match collection.find_one_and_update(filtre, ops, options).await {
+        let resultat = match collection.find_one_and_update(filtre, ops, options).await {
             Ok(inner) => match inner {
-                Some(inner) => match convertir_bson_deserializable(inner) {
-                    Ok(inner) => inner,
-                    Err(e) => Err(format!("transactions.transaction_sauvegarder_document Erreur insert/maj groupe usager (mapping) : {:?}", e))?
-                },
+                Some(inner) => inner,
                 None => Err(format!("transactions.transaction_sauvegarder_document Erreur insert/maj groupe usager (None)"))?
             },
             Err(e) => Err(format!("transactions.transaction_sauvegarder_document Erreur insert/maj groupe usager (exec) : {:?}", e))?
