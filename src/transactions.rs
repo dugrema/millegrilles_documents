@@ -180,11 +180,6 @@ async fn transaction_sauvegarder_categorie_usager<M>(gestionnaire: &Gestionnaire
     middleware.emettre_evenement(routage, &document_categorie).await?;
 
     Ok(Some(middleware.reponse_ok(None, None)?))
-    // let reponse = json!({ "ok": true });
-    // match middleware.formatter_reponse(reponse, None) {
-    //     Ok(r) => Ok(Some(r)),
-    //     Err(e) => Err(format!("transactions.transaction_sauvegarder_categorie_usager Erreur preparation confirmat envoi message {} : {:?}", uuid_transaction, e))
-    // }
 }
 
 async fn transaction_sauvegarder_groupe_usager<M>(gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: TransactionValide)

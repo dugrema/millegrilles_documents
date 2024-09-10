@@ -14,7 +14,7 @@ use millegrilles_common_rust::serde_json::{json, Value};
 use millegrilles_common_rust::error::Error;
 use millegrilles_common_rust::messages_generiques::ReponseCommande;
 use millegrilles_common_rust::millegrilles_cryptographie::deser_message_buffer;
-
+use serde::{Deserialize, Serialize};
 use crate::common::*;
 use crate::constantes::*;
 use crate::gestionnaire::GestionnaireDocuments;
@@ -56,6 +56,12 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValide, gestionnair
         // Commandes inconnues
         _ => Err(format!("core_backup.consommer_commande: Commande {} inconnue : {}, message dropped", DOMAINE_NOM, action))?,
     }
+}
+
+#[derive(Serialize)]
+struct EvenementMaj {
+    category: Option<TransactionSauvegarderCategorieUsager>,
+    group: Option<TransactionSauvegarderGroupeUsager>,
 }
 
 async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
@@ -103,7 +109,16 @@ async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValide, gest
     }
 
     // Traiter la transaction
-    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    let reponse_transaction = sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?;
+
+    // Emettre evenement maj
+    let evenement = EvenementMaj { category: Some(commande), group: None };
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_UPDATE_CATGGROUP, vec![Securite::L2Prive])
+        .partition(user_id)
+        .build();
+    middleware.emettre_evenement(routage, &evenement).await?;
+
+    Ok(reponse_transaction)
 }
 
 async fn commande_sauvegarder_groupe<M>(middleware: &M, mut m: MessageValide, gestionnaire: &GestionnaireDocuments)
@@ -170,7 +185,16 @@ async fn commande_sauvegarder_groupe<M>(middleware: &M, mut m: MessageValide, ge
     }
 
     // Traiter la transaction
-    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    let resultat = sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?;
+
+    // Emettre evenement maj
+    let evenement = EvenementMaj { category: None, group: Some(commande) };
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_UPDATE_CATGGROUP, vec![Securite::L2Prive])
+        .partition(user_id)
+        .build();
+    middleware.emettre_evenement(routage, &evenement).await?;
+
+    Ok(resultat)
 }
 
 async fn commande_sauvegarder_document<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
