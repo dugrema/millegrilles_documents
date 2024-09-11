@@ -17,7 +17,7 @@ use millegrilles_common_rust::recepteur_messages::MessageValide;
 use millegrilles_common_rust::serde_json::json;
 use millegrilles_common_rust::transactions::Transaction;
 use millegrilles_common_rust::error::Error;
-
+use serde::Serialize;
 use crate::common::*;
 use crate::constantes::*;
 use crate::gestionnaire::GestionnaireDocuments;
@@ -284,6 +284,12 @@ async fn transaction_sauvegarder_groupe_usager<M>(gestionnaire: &GestionnaireDoc
     // }
 }
 
+#[derive(Serialize)]
+struct ReponseTransactionSauvegarderDocument {
+    ok: bool,
+    doc_id: String,
+}
+
 async fn transaction_sauvegarder_document<M>(gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: TransactionValide)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
@@ -358,10 +364,6 @@ async fn transaction_sauvegarder_document<M>(gestionnaire: &GestionnaireDocument
         .build();
     middleware.emettre_evenement(routage, &document_doc).await?;
 
-    Ok(Some(middleware.reponse_ok(None, None)?))
-    // let reponse = json!({ "ok": true });
-    // match middleware.formatter_reponse(reponse, None) {
-    //     Ok(r) => Ok(Some(r)),
-    //     Err(e) => Err(format!("transactions.transaction_sauvegarder_document Erreur preparation confirmat envoi message {} : {:?}", uuid_transaction, e))
-    // }
+    let reponse = ReponseTransactionSauvegarderDocument { ok: true, doc_id };
+    Ok(Some(middleware.build_reponse(reponse)?.0))
 }

@@ -197,11 +197,21 @@ async fn commande_sauvegarder_groupe<M>(middleware: &M, mut m: MessageValide, ge
     Ok(resultat)
 }
 
+#[derive(Serialize)]
+struct EvenementDocumentMaj {
+    document: TransactionSauvegarderDocument,
+}
+
 async fn commande_sauvegarder_document<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
                                           -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
     debug!("commande_sauvegarder_document Consommer commande : {:?}", & m.message);
+    let message_id = {
+        let parsed_message = m.message.parse()?;
+        parsed_message.id.to_owned()
+    };
+
     let commande: TransactionSauvegarderDocument = deser_message_buffer!(m.message);
 
     let user_id = match m.certificat.get_user_id()? {
@@ -235,7 +245,23 @@ async fn commande_sauvegarder_document<M>(middleware: &M, m: MessageValide, gest
     }
 
     // Traiter la transaction
-    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    let resultat = sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?;
+
+    // Emettre evenement maj
+    let mut evenement = EvenementDocumentMaj { document: commande };
+
+    // Check if we set the doc_id from message_id on new document.
+    if evenement.document.doc_id.is_none() {
+        // Set the doc_id from transaction id
+        evenement.document.doc_id = Some(message_id);
+    }
+    let partition = format!("{}_{}", user_id, evenement.document.groupe_id);
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_UPDATE_GROUPDOCUMENT, vec![Securite::L2Prive])
+        .partition(partition)
+        .build();
+    middleware.emettre_evenement(routage, &evenement).await?;
+
+    Ok(resultat)
 }
 
 async fn transmettre_cle_attachee<M>(middleware: &M, message_cle: MessageMilleGrillesOwned)
