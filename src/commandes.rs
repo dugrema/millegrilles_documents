@@ -68,8 +68,12 @@ async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValide, gest
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
-    debug!("commande_sauvegader_categorie Consommer commande : {:?}", & m.message);
-    let commande: TransactionSauvegarderCategorieUsager = deser_message_buffer!(m.message);
+    debug!("commande_sauvegader_categorie Consommer commande : {:?}", m.type_message);
+    let message_id = {
+        let parsed = m.message.parse()?;
+        parsed.id.to_owned()
+    };
+    let mut commande: TransactionSauvegarderCategorieUsager = deser_message_buffer!(m.message);
 
     let user_id = match m.certificat.get_user_id()? {
         Some(inner) => inner,
@@ -111,6 +115,11 @@ async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValide, gest
     // Traiter la transaction
     let reponse_transaction = sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?;
 
+    // Injecter le nouveau categorie_id
+    if commande.categorie_id.is_none() {
+        commande.categorie_id = Some(message_id);
+    }
+
     // Emettre evenement maj
     let evenement = EvenementMaj { category: Some(commande), group: None };
     let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_UPDATE_CATGGROUP, vec![Securite::L2Prive])
@@ -126,7 +135,11 @@ async fn commande_sauvegarder_groupe<M>(middleware: &M, mut m: MessageValide, ge
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
     debug!("commande_sauvegader_groupe Consommer commande : {:?}", & m.type_message);
-    let commande: TransactionSauvegarderGroupeUsager = deser_message_buffer!(m.message);
+    let message_id = {
+        let parsed = m.message.parse()?;
+        parsed.id.to_owned()
+    };
+    let mut commande: TransactionSauvegarderGroupeUsager = deser_message_buffer!(m.message);
 
     let user_id = match m.certificat.get_user_id()? {
         Some(inner) => inner,
@@ -187,6 +200,10 @@ async fn commande_sauvegarder_groupe<M>(middleware: &M, mut m: MessageValide, ge
     // Traiter la transaction
     let resultat = sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?;
 
+    // S'assurer de retourner le group_id
+    if commande.groupe_id.is_none() {
+        commande.groupe_id = Some(message_id);
+    }
     // Emettre evenement maj
     let evenement = EvenementMaj { category: None, group: Some(commande) };
     let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_UPDATE_CATGGROUP, vec![Securite::L2Prive])

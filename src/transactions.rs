@@ -67,6 +67,12 @@ where
     Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
 }
 
+#[derive(Serialize)]
+struct ReponseTransactionSauvegarderCategorie {
+    ok: bool,
+    category_id: String,
+}
+
 async fn transaction_sauvegarder_categorie_usager<M>(gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: TransactionValide)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
@@ -179,7 +185,15 @@ async fn transaction_sauvegarder_categorie_usager<M>(gestionnaire: &Gestionnaire
         .build();
     middleware.emettre_evenement(routage, &document_categorie).await?;
 
-    Ok(Some(middleware.reponse_ok(None, None)?))
+    // Ok(Some(middleware.reponse_ok(None, None)?))
+    let reponse = ReponseTransactionSauvegarderCategorie { ok: true, category_id: categorie_id };
+    Ok(Some(middleware.build_reponse(reponse)?.0))
+}
+
+#[derive(Serialize)]
+struct ReponseTransactionSauvegarderGroupe {
+    ok: bool,
+    group_id: String,
 }
 
 async fn transaction_sauvegarder_groupe_usager<M>(gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: TransactionValide)
@@ -197,23 +211,6 @@ async fn transaction_sauvegarder_groupe_usager<M>(gestionnaire: &GestionnaireDoc
         Ok(t) => t,
         Err(e) => Err(Error::String(format!("transactions.transaction_sauvegarder_groupe_usager Erreur conversion transaction : {:?}", e)))?
     };
-
-    // if middleware.get_mode_regeneration() == false {
-    //     if let Some(maitrecles) = transaction_groupe.commande_maitredescles {
-    //         debug!("transaction_sauvegarder_groupe_usager Emettre commande pour cle de groupe");
-    //         let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
-    //             .exchanges(vec![Securite::L4Secure])
-    //             .build();
-    //         if let Some(reponse) = middleware.transmettre_commande(routage, &maitrecles, true).await? {
-    //             debug!("Reponse sauvegarde cle : {:?}", reponse);
-    //             if !verifier_reponse_ok(&reponse) {
-    //                 Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur sauvegarde cle"))?
-    //             }
-    //         } else {
-    //             Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur sauvegarde cle - timeout/erreur"))?
-    //         }
-    //     }
-    // }
 
     let groupe_id = if let Some(groupe_id) = transaction_groupe.groupe_id {
         groupe_id
@@ -276,12 +273,8 @@ async fn transaction_sauvegarder_groupe_usager<M>(gestionnaire: &GestionnaireDoc
         .build();
     middleware.emettre_evenement(routage, &document_groupe).await?;
 
-    Ok(Some(middleware.reponse_ok(None, None)?))
-    // let reponse = json!({ "ok": true });
-    // match middleware.formatter_reponse(reponse, None) {
-    //     Ok(r) => Ok(Some(r)),
-    //     Err(e) => Err(format!("transactions.transaction_sauvegarder_groupe_usager Erreur preparation confirmat envoi message {} : {:?}", uuid_transaction, e))
-    // }
+    let reponse = ReponseTransactionSauvegarderGroupe { ok: true, group_id: groupe_id };
+    Ok(Some(middleware.build_reponse(reponse)?.0))
 }
 
 #[derive(Serialize)]
