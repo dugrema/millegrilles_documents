@@ -23,7 +23,7 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValide, gestionnair
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao + ValidateurX509 + CleChiffrageHandler
 {
-    debug!("consommer_commande : {:?}", &m.message);
+    debug!("consommer_commande : {:?}", &m.type_message);
 
     let user_id = m.certificat.get_user_id()?;
     let role_prive = m.certificat.verifier_roles(vec![RolesCertificats::ComptePrive])?;
@@ -125,7 +125,7 @@ async fn commande_sauvegarder_groupe<M>(middleware: &M, mut m: MessageValide, ge
                                         -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
-    debug!("commande_sauvegader_groupe Consommer commande : {:?}", & m.message);
+    debug!("commande_sauvegader_groupe Consommer commande : {:?}", & m.type_message);
     let commande: TransactionSauvegarderGroupeUsager = deser_message_buffer!(m.message);
 
     let user_id = match m.certificat.get_user_id()? {
@@ -172,13 +172,13 @@ async fn commande_sauvegarder_groupe<M>(middleware: &M, mut m: MessageValide, ge
                 }
             },
             None => {
-                error!("Cle de nouvelle collection manquante (1)");
+                error!("Cle de nouveau groupe manquant (1)");
                 // return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Cle manquante"}), None)?));
                 return Ok(Some(middleware.reponse_err(None, None, Some("Cle manquante"))?))
             }
         },
         None => {
-            error!("Cle de nouvelle collection manquante (2)");
+            error!("Cle de nouveau groupe manquante (2)");
             // return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Cle manquante"}), None)?));
             return Ok(Some(middleware.reponse_err(None, None, Some("Cle manquante"))?))
         }

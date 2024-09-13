@@ -74,7 +74,7 @@ async fn requete_get_categories_usager<M>(middleware: &M, m: MessageValide, gest
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
-    debug!("requete_get_categories_usager Message : {:?}", & m.message);
+    debug!("requete_get_categories_usager Message : {:?}", & m.type_message);
     let requete: RequeteGetCategoriesUsager = deser_message_buffer!(m.message);
 
     let user_id = match m.certificat.get_user_id()? {
@@ -281,7 +281,7 @@ async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValide, gesti
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
-    debug!("requete_get_documents_groupe Message : {:?}", & m.message);
+    debug!("requete_get_documents_groupe Message : {:?}", m.type_message);
     let requete: RequeteGetDocumentsGroupe = deser_message_buffer!(m.message);
 
     let user_id = match m.certificat.get_user_id()? {
