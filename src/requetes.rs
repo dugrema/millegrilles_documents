@@ -2,6 +2,7 @@ use log::{debug, error};
 
 use millegrilles_common_rust::bson::doc;
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
+use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::common_messages::RequeteDechiffrage;
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
@@ -17,6 +18,7 @@ use millegrilles_common_rust::error::Error;
 use millegrilles_common_rust::millegrilles_cryptographie::chiffrage::FormatChiffrage;
 use millegrilles_common_rust::millegrilles_cryptographie::deser_message_buffer;
 use millegrilles_common_rust::millegrilles_cryptographie::chiffrage::formatchiffragestr;
+use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{epochseconds, optionepochseconds};
 
 use crate::common::{DocCategorieUsager, DocDocument, DocGroupeUsager};
 use crate::constantes::*;
@@ -270,11 +272,23 @@ async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValide, gestionna
 }
 
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct RequeteGetDocumentsGroupe {
     groupe_id: String,
     limit: Option<i32>,
     skip: Option<i32>,
+    supprime: Option<bool>,
+    /// Last sync date, allows for incremental download
+    #[serde(default, deserialize_with = "optionepochseconds::deserialize")]
+    date_sync: Option<DateTime<Utc>>,
+}
+
+#[derive(Serialize)]
+struct ReponseGetDocumentsGroupe {
+    documents: Vec<DocDocument>,
+    supprimes: Vec<String>,
+    #[serde(serialize_with = "epochseconds::serialize")]
+    date_sync: DateTime<Utc>,
 }
 
 async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
@@ -289,6 +303,10 @@ async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValide, gesti
         None => return Ok(Some(middleware.reponse_err(None, None, Some("Access denied"))?))
     };
 
+    let supprime_only = requete.supprime == Some(true);
+
+    let date_sync = requete.date_sync;
+
     let limit = match requete.limit {
         Some(l) => l,
         None => 100
@@ -298,21 +316,49 @@ async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValide, gesti
         None => 0
     };
 
-    let liste_documents = {
+    let (liste_documents, liste_supprimes) = {
         let mut liste_documents = Vec::new();
+        let mut liste_supprimes = Vec::new();
 
-        let filtre = doc! { "user_id": &user_id, "groupe_id": &requete.groupe_id };
-        let collection = middleware.get_collection(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
+        let filtre = {
+            match date_sync {
+                Some(date_sync) => {
+                    doc! { "user_id": &user_id, "groupe_id": &requete.groupe_id, CHAMP_MODIFICATION: {"$gt": date_sync} }
+                },
+                None => {
+                    doc! { "user_id": &user_id, "groupe_id": &requete.groupe_id }
+                }
+            }
+        };
+        let collection = middleware.get_collection_typed::<DocDocument>(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
 
         let mut curseur = collection.find(filtre, None).await?;
-        while let Some(doc_groupe) = curseur.next().await {
-            let doc: DocDocument = convertir_bson_deserializable(doc_groupe?)?;
-            liste_documents.push(doc);
+        while curseur.advance().await? {
+        // while let Some(doc_groupe) = curseur.next().await {
+            // let doc: DocDocument = convertir_bson_deserializable(doc_groupe?)?;
+            let doc = curseur.deserialize_current()?;
+
+            if supprime_only {
+                if Some(true) == doc.supprime {
+                    liste_documents.push(doc);
+                }
+            } else {
+                // Separer documents supprimes de documents actifs
+                if Some(true) == doc.supprime {
+                    liste_supprimes.push(doc.doc_id);
+                } else {
+                    liste_documents.push(doc);
+                }
+            }
         }
 
-        liste_documents
+        (liste_documents, liste_supprimes)
     };
 
-    let reponse = json!({ "documents": liste_documents });
+    let reponse = ReponseGetDocumentsGroupe {
+        documents: liste_documents,
+        supprimes: liste_supprimes,
+        date_sync: Utc::now(),
+    };
     Ok(Some(middleware.build_reponse(&reponse)?.0))
 }

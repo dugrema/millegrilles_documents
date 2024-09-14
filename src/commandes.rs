@@ -52,6 +52,10 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValide, gestionnair
         TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER => commande_sauvegader_categorie(middleware, m, gestionnaire).await,
         TRANSACTION_SAUVEGARDER_GROUPE_USAGER => commande_sauvegarder_groupe(middleware, m, gestionnaire).await,
         TRANSACTION_SAUVEGARDER_DOCUMENT => commande_sauvegarder_document(middleware, m, gestionnaire).await,
+        TRANSACTION_SUPPRIMER_DOCUMENT => commande_supprimer_document(middleware, m, gestionnaire).await,
+        // TRANSACTION_RECUPERER_DOCUMENT => commande_recuperer_document(middleware, m, gestionnaire).await,
+        // TRANSACTION_SUPPRIMER_GROUPE => commande_supprimer_groupe(middleware, m, gestionnaire).await,
+        // TRANSACTION_SUPPRIMER_DOCUMENT => commande_recuperer_groupe(middleware, m, gestionnaire).await,
 
         // Commandes inconnues
         _ => Err(format!("core_backup.consommer_commande: Commande {} inconnue : {}, message dropped", DOMAINE_NOM, action))?,
@@ -234,7 +238,7 @@ async fn commande_sauvegarder_document<M>(middleware: &M, m: MessageValide, gest
                                           -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
-    debug!("commande_sauvegarder_document Consommer commande : {:?}", & m.message);
+    debug!("commande_sauvegarder_document Consommer commande : {:?}", m.type_message);
     let message_id = {
         let parsed_message = m.message.parse()?;
         parsed_message.id.to_owned()
@@ -330,4 +334,65 @@ async fn transmettre_cle_attachee<M>(middleware: &M, message_cle: MessageMilleGr
             Ok(Some(middleware.reponse_err(1, None, Some("Timeout"))?))
         }
     }
+}
+
+#[derive(Serialize)]
+struct EvenementDocumentSupprime {
+    doc_id: String,
+    supprime: bool,
+}
+
+async fn commande_supprimer_document<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+    where M: GenerateurMessages + MongoDao + ValidateurX509
+{
+    debug!("commande_supprimer_document Consommer commande : {:?}", m.type_message);
+    let commande: TransactionSupprimerDocument = deser_message_buffer!(m.message);
+
+    let doc_id = commande.doc_id.clone();
+
+    let user_id = match m.certificat.get_user_id()? {
+        Some(inner) => inner,
+        None => Err(format!("commande_supprimer_document User_id absent du certificat"))?
+    };
+
+    // Autorisation: Action usager avec compte prive ou delegation globale
+    let role_prive = m.certificat.verifier_roles(vec![RolesCertificats::ComptePrive])?;
+    if role_prive {
+        // Ok
+    } else if m.certificat.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE)? {
+        // Ok
+    } else {
+        Err(format!("commandes.commande_supprimer_document: Commande autorisation invalide pour message {:?}", m.type_message))?
+    }
+
+    // Verifier que le document existe et n'est pas supprime.
+    let collection = middleware.get_collection_typed::<DocDocument>(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
+    let filtre = doc!{"user_id": &user_id, "doc_id": &commande.doc_id};
+    let groupe_id = if let Some(doc_existant) = collection.find_one(filtre, None).await? {
+        if Some(true) == doc_existant.supprime {
+            // Document deja supprime
+            error!("commande_supprimer_document Erreur document deja supprime");
+            return Ok(Some(middleware.reponse_err(1, None, Some("Document already deleted"))?));
+        }
+        doc_existant.groupe_id
+    } else {
+        error!("commande_supprimer_document Erreur document inconnu");
+        return Ok(Some(middleware.reponse_err(404, None, Some("Unknown document"))?));
+    };
+
+    // Traiter la transaction
+    let resultat = sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?;
+
+    // Emettre evenement maj
+    let evenement = EvenementDocumentSupprime { doc_id, supprime: true };
+
+    // Check if we set the doc_id from message_id on new document.
+    let partition = format!("{}_{}", user_id, groupe_id);
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_UPDATE_GROUPDOCUMENT, vec![Securite::L2Prive])
+        .partition(partition)
+        .build();
+    middleware.emettre_evenement(routage, &evenement).await?;
+
+    Ok(resultat)
 }

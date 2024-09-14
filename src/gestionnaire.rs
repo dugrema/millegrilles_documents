@@ -146,6 +146,10 @@ pub fn preparer_queues() -> Vec<QueueType> {
         TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER,
         TRANSACTION_SAUVEGARDER_GROUPE_USAGER,
         TRANSACTION_SAUVEGARDER_DOCUMENT,
+        TRANSACTION_SUPPRIMER_DOCUMENT,
+        TRANSACTION_RECUPERER_DOCUMENT,
+        TRANSACTION_SUPPRIMER_GROUPE,
+        TRANSACTION_RECUPERER_GROUPE,
     ];
     for cmd in commandes_privees {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L2Prive});
@@ -163,28 +167,6 @@ pub fn preparer_queues() -> Vec<QueueType> {
             autodelete: false,
         }
     ));
-
-    // let mut rk_transactions = Vec::new();
-    // let transactions_secures: Vec<&str> = vec![
-    //
-    // ];
-    // for ts in transactions_secures {
-    //     rk_transactions.push(ConfigRoutingExchange {
-    //         routing_key: format!("transaction.{}.{}", DOMAINE_NOM, ts).into(),
-    //         exchange: Securite::L4Secure
-    //     });
-    // }
-
-    // Queue de transactions
-    // queues.push(QueueType::ExchangeQueue (
-    //     ConfigQueue {
-    //         nom_queue: NOM_Q_TRANSACTIONS.into(),
-    //         routing_keys: rk_transactions,
-    //         ttl: None,
-    //         durable: true,
-    //         autodelete: false,
-    //     }
-    // ));
 
     // Queue de triggers pour Pki
     queues.push(QueueType::Triggers (DOMAINE_NOM.into(), Securite::L3Protege));
