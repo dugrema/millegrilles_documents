@@ -116,6 +116,7 @@ async fn requete_get_categories_usager<M>(middleware: &M, m: MessageValide, gest
 struct RequeteGetGroupesUsager {
     limit: Option<i32>,
     skip: Option<i32>,
+    supprime: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -148,6 +149,7 @@ async fn requete_get_groupes_usager<M>(middleware: &M, m: MessageValide, gestion
     };
 
     let date_sync = Utc::now();
+    let supprime_only = requete.supprime == Some(true);
 
     let (liste_groupes, liste_supprimes) = {
         let mut liste_groupes = Vec::new();
@@ -159,10 +161,17 @@ async fn requete_get_groupes_usager<M>(middleware: &M, m: MessageValide, gestion
         let mut curseur = collection.find(filtre, None).await?;
         while let Some(doc_groupe) = curseur.next().await {
             let groupe: DocGroupeUsager = convertir_bson_deserializable(doc_groupe?)?;
-            if Some(true) == groupe.supprime {
-                liste_supprimes.push(groupe.groupe_id);
+
+            if supprime_only {
+                if Some(true) == groupe.supprime {
+                    liste_groupes.push(groupe);
+                }
             } else {
-                liste_groupes.push(groupe);
+                if Some(true) == groupe.supprime {
+                    liste_supprimes.push(groupe.groupe_id);
+                } else {
+                    liste_groupes.push(groupe);
+                }
             }
         }
 

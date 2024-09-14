@@ -55,7 +55,7 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValide, gestionnair
         TRANSACTION_SUPPRIMER_DOCUMENT => commande_supprimer_document(middleware, m, gestionnaire).await,
         // TRANSACTION_RECUPERER_DOCUMENT => commande_recuperer_document(middleware, m, gestionnaire).await,
         TRANSACTION_SUPPRIMER_GROUPE => commande_supprimer_groupe(middleware, m, gestionnaire).await,
-        // TRANSACTION_SUPPRIMER_DOCUMENT => commande_recuperer_groupe(middleware, m, gestionnaire).await,
+        TRANSACTION_RECUPERER_GROUPE => commande_recuperer_groupe(middleware, m, gestionnaire).await,
 
         // Commandes inconnues
         _ => Err(format!("core_backup.consommer_commande: Commande {} inconnue : {}, message dropped", DOMAINE_NOM, action))?,
@@ -444,6 +444,57 @@ async fn commande_supprimer_groupe<M>(middleware: &M, m: MessageValide, gestionn
 
     // Emettre evenement maj
     let evenement = EvenementGroupeSupprime { groupe_id: commande.groupe_id, supprime: true };
+
+    // Check if we set the doc_id from message_id on new document.
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_UPDATE_CATGGROUP, vec![Securite::L2Prive])
+        .partition(user_id)
+        .build();
+    middleware.emettre_evenement(routage, &evenement).await?;
+
+    Ok(resultat)
+}
+
+async fn commande_recuperer_groupe<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+                                      -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+where M: GenerateurMessages + MongoDao + ValidateurX509
+{
+    debug!("commande_recuperer_groupe Consommer commande : {:?}", m.type_message);
+    let commande: TransactionSupprimerGroupe = deser_message_buffer!(m.message);
+
+    let user_id = match m.certificat.get_user_id()? {
+        Some(inner) => inner,
+        None => Err(format!("commande_recuperer_groupe User_id absent du certificat"))?
+    };
+
+    // Autorisation: Action usager avec compte prive ou delegation globale
+    let role_prive = m.certificat.verifier_roles(vec![RolesCertificats::ComptePrive])?;
+    if role_prive {
+        // Ok
+    } else if m.certificat.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE)? {
+        // Ok
+    } else {
+        Err(format!("commandes.commande_supprimer_groupe: Commande autorisation invalide pour message {:?}", m.type_message))?
+    }
+
+    // Verifier que le document existe et n'est pas supprime.
+    let collection = middleware.get_collection_typed::<DocGroupeUsager>(NOM_COLLECTION_GROUPES_USAGERS)?;
+    let filtre = doc!{"user_id": &user_id, "groupe_id": &commande.groupe_id};
+    if let Some(groupe_existant) = collection.find_one(filtre, None).await? {
+        if Some(true) != groupe_existant.supprime {
+            // Groupe deja recupere
+            error!("commande_supprimer_groupe Erreur document deja recupere");
+            return Ok(Some(middleware.reponse_err(1, None, Some("Group already restored"))?));
+        }
+    } else {
+        error!("commande_supprimer_document Erreur document inconnu");
+        return Ok(Some(middleware.reponse_err(404, None, Some("Unknown Group"))?));
+    };
+
+    // Traiter la transaction
+    let resultat = sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?;
+
+    // Emettre evenement maj
+    let evenement = EvenementGroupeSupprime { groupe_id: commande.groupe_id, supprime: false };
 
     // Check if we set the doc_id from message_id on new document.
     let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_UPDATE_CATGGROUP, vec![Securite::L2Prive])
