@@ -191,9 +191,20 @@ async fn commande_sauvegarder_groupe<M>(middleware: &M, mut m: MessageValide, ge
             }
         },
         None => {
-            error!("Cle de nouveau groupe manquante (2)");
-            // return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Cle manquante"}), None)?));
-            return Ok(Some(middleware.reponse_err(None, None, Some("Cle manquante"))?))
+            if let Some(groupe_id) = commande.groupe_id.as_ref() {
+                // S'assurer que le groupe existe (reutiliser la cle)
+                let collection = middleware.get_collection(NOM_COLLECTION_GROUPES_USAGERS)?;
+                let filter = doc! {"groupe_id": groupe_id};
+                let doc_existant = collection.find_one(filter, None).await?;
+                if doc_existant.is_none() {
+                    // Le groupe n'existe pas. On a besoin d'une cle attachee.
+                    error!("Cle de nouveau groupe manquante (2)");
+                    return Ok(Some(middleware.reponse_err(None, None, Some("Cle manquante"))?))
+                }
+            } else {
+                error!("Cle de nouveau groupe manquante (3)");
+                return Ok(Some(middleware.reponse_err(None, None, Some("Cle manquante"))?))
+            }
         }
     }
 
