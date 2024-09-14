@@ -55,6 +55,10 @@ pub struct DocGroupeUsager {
     pub categorie_id: String,
     pub data_chiffre: String,
     pub supprime: Option<bool>,
+    #[serde(default,
+        serialize_with = "optionepochseconds::serialize",
+        deserialize_with = "opt_chrono_datetime_as_bson_datetime::deserialize")]
+    pub supprime_date: Option<DateTime<Utc>>,
 
     pub cle_id: Option<String>,
     #[serde(with="formatchiffragestr")]

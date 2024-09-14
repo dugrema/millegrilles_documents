@@ -118,6 +118,14 @@ struct RequeteGetGroupesUsager {
     skip: Option<i32>,
 }
 
+#[derive(Serialize)]
+struct ReponseGetGroupes {
+    groupes: Vec<DocGroupeUsager>,
+    supprimes: Vec<String>,
+    #[serde(serialize_with = "epochseconds::serialize")]
+    date_sync: DateTime<Utc>,
+}
+
 async fn requete_get_groupes_usager<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
@@ -139,8 +147,11 @@ async fn requete_get_groupes_usager<M>(middleware: &M, m: MessageValide, gestion
         None => 0
     };
 
-    let liste_groupes = {
+    let date_sync = Utc::now();
+
+    let (liste_groupes, liste_supprimes) = {
         let mut liste_groupes = Vec::new();
+        let mut liste_supprimes = Vec::new();
 
         let filtre = doc! { "user_id": &user_id };
         let collection = middleware.get_collection(NOM_COLLECTION_GROUPES_USAGERS)?;
@@ -148,13 +159,18 @@ async fn requete_get_groupes_usager<M>(middleware: &M, m: MessageValide, gestion
         let mut curseur = collection.find(filtre, None).await?;
         while let Some(doc_groupe) = curseur.next().await {
             let groupe: DocGroupeUsager = convertir_bson_deserializable(doc_groupe?)?;
-            liste_groupes.push(groupe);
+            if Some(true) == groupe.supprime {
+                liste_supprimes.push(groupe.groupe_id);
+            } else {
+                liste_groupes.push(groupe);
+            }
         }
 
-        liste_groupes
+        (liste_groupes, liste_supprimes)
     };
 
-    let reponse = json!({ "groupes": liste_groupes });
+    // let reponse = json!({ "groupes": liste_groupes });
+    let reponse = ReponseGetGroupes { groupes: liste_groupes, supprimes: liste_supprimes, date_sync };
     Ok(Some(middleware.build_reponse(&reponse)?.0))
 }
 
@@ -316,6 +332,8 @@ async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValide, gesti
         None => 0
     };
 
+    let current_sync_date = Utc::now();
+
     let (liste_documents, liste_supprimes) = {
         let mut liste_documents = Vec::new();
         let mut liste_supprimes = Vec::new();
@@ -358,7 +376,7 @@ async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValide, gesti
     let reponse = ReponseGetDocumentsGroupe {
         documents: liste_documents,
         supprimes: liste_supprimes,
-        date_sync: Utc::now(),
+        date_sync: current_sync_date,
     };
     Ok(Some(middleware.build_reponse(&reponse)?.0))
 }

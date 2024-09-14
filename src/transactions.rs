@@ -39,6 +39,8 @@ pub async fn aiguillage_transaction<M>(gestionnaire: &GestionnaireDocuments, mid
         TRANSACTION_SAUVEGARDER_DOCUMENT => transaction_sauvegarder_document(gestionnaire, middleware, transaction).await,
         TRANSACTION_SUPPRIMER_DOCUMENT => transaction_supprimer_document(gestionnaire, middleware, transaction).await,
         TRANSACTION_RECUPERER_DOCUMENT => transaction_supprimer_document(gestionnaire, middleware, transaction).await,
+        TRANSACTION_SUPPRIMER_GROUPE => transaction_supprimer_groupe(gestionnaire, middleware, transaction).await,
+        // TRANSACTION_RECUPERER_GROUPE => transaction_supprimer_groupe(gestionnaire, middleware, transaction).await,
         _ => Err(Error::String(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.transaction.id, action))),
     }
 }
@@ -59,7 +61,9 @@ where
         TRANSACTION_SAUVEGARDER_GROUPE_USAGER |
         TRANSACTION_SAUVEGARDER_DOCUMENT |
         TRANSACTION_SUPPRIMER_DOCUMENT |
-        TRANSACTION_RECUPERER_DOCUMENT => {
+        TRANSACTION_RECUPERER_DOCUMENT |
+        TRANSACTION_SUPPRIMER_GROUPE |
+        TRANSACTION_RECUPERER_GROUPE => {
             match m.certificat.verifier_exchanges(vec![Securite::L4Secure])? {
                 true => Ok(()),
                 false => Err(format!("transactions.consommer_transaction: Message autorisation invalide (pas 4.secure)"))
@@ -445,5 +449,46 @@ async fn transaction_recuperer_document<M>(_gestionnaire: &GestionnaireDocuments
     };
 
     let reponse = ReponseTransactionSauvegarderDocument { ok: true, doc_id };
+    Ok(Some(middleware.build_reponse(reponse)?.0))
+}
+
+async fn transaction_supprimer_groupe<M>(_gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: TransactionValide)
+    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+    where M: GenerateurMessages + MongoDao
+{
+    debug!("transaction_supprimer_groupe Consommer transaction : {:?}", &transaction.transaction.id);
+    let user_id = match transaction.certificat.get_user_id()? {
+        Some(inner) => inner.to_owned(),
+        None => Err(format!("transactions.transaction_supprimer_groupe User_id absent du certificat (cert)"))?
+    };
+
+    let transaction_doc: TransactionSupprimerGroupe = match serde_json::from_str(transaction.transaction.contenu.as_str()) {
+        Ok(t) => t,
+        Err(e) => Err(format!("transactions.transaction_supprimer_groupe Erreur conversion transaction : {:?}", e))?
+    };
+
+    let groupe_id = transaction_doc.groupe_id;
+
+    // Remplacer la version la plus recente
+    let filtre = doc! {
+        "groupe_id": &groupe_id,
+        "user_id": &user_id,
+    };
+
+    let ops = doc! {
+        "$set": {"supprime": true},
+        "$currentDate": {CHAMP_MODIFICATION: true, NOM_CHAMP_SUPPRIME_DATE: true},
+    };
+
+    let collection = middleware.get_collection_typed::<DocGroupeUsager>(NOM_COLLECTION_GROUPES_USAGERS)?;
+    match collection.find_one_and_update(filtre, ops, None).await {
+        Ok(inner) => match inner {
+            Some(_inner) => (),
+            None => Err(format!("transactions.transaction_supprimer_groupe Erreur insert/maj groupe usager (None)"))?
+        },
+        Err(e) => Err(format!("transactions.transaction_supprimer_groupe Erreur insert/maj groupe usager (exec) : {:?}", e))?
+    };
+
+    let reponse = ReponseTransactionSauvegarderGroupe { ok: true, group_id: groupe_id };
     Ok(Some(middleware.build_reponse(reponse)?.0))
 }
