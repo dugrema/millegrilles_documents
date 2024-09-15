@@ -26,3 +26,7 @@ pub const REQUETE_DOCUMENTS_GROUPE: &str = "getDocumentsGroupe";
 
 pub const EVENEMENT_UPDATE_CATGGROUP: &str = "updateCatGroup";
 pub const EVENEMENT_UPDATE_GROUPDOCUMENT: &str = "updateGroupDocument";
+
+pub const CONST_STREAMING_BATCH_LEN: usize = 500_000;
+pub const CONST_DOCUMENT_META_LEN: usize = 400;
+

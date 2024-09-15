@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use log::{debug, error};
 
 use millegrilles_common_rust::bson::doc;
@@ -5,16 +6,17 @@ use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissi
 use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::common_messages::RequeteDechiffrage;
 use millegrilles_common_rust::constantes::*;
-use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
+use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction, RoutageMessageReponse};
 use millegrilles_common_rust::get_domaine_action;
-use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::MessageMilleGrillesBufferDefault;
+use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{MessageMilleGrillesBufferAlloc, MessageMilleGrillesBufferDefault};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, MongoDao};
 use millegrilles_common_rust::rabbitmq_dao::TypeMessageOut;
 use millegrilles_common_rust::recepteur_messages::MessageValide;
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
-use millegrilles_common_rust::serde_json::json;
+use millegrilles_common_rust::serde_json::{json, Value};
 use millegrilles_common_rust::tokio_stream::StreamExt;
 use millegrilles_common_rust::error::Error;
+use millegrilles_common_rust::formatteur_messages::build_reponse;
 use millegrilles_common_rust::millegrilles_cryptographie::chiffrage::FormatChiffrage;
 use millegrilles_common_rust::millegrilles_cryptographie::deser_message_buffer;
 use millegrilles_common_rust::millegrilles_cryptographie::chiffrage::formatchiffragestr;
@@ -306,14 +308,16 @@ struct RequeteGetDocumentsGroupe {
     /// Last sync date, allows for incremental download
     #[serde(default, deserialize_with = "optionepochseconds::deserialize")]
     date_sync: Option<DateTime<Utc>>,
+    stream: Option<bool>,
 }
 
 #[derive(Serialize)]
-struct ReponseGetDocumentsGroupe {
-    documents: Vec<DocDocument>,
-    supprimes: Vec<String>,
+struct ReponseGetDocumentsGroupe<'a> {
+    documents: &'a Vec<DocDocument>,
+    supprimes: &'a Vec<String>,
     #[serde(serialize_with = "epochseconds::serialize")]
-    date_sync: DateTime<Utc>,
+    date_sync: &'a DateTime<Utc>,
+    done: bool,
 }
 
 async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
@@ -323,26 +327,45 @@ async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValide, gesti
     debug!("requete_get_documents_groupe Message : {:?}", m.type_message);
     let requete: RequeteGetDocumentsGroupe = deser_message_buffer!(m.message);
 
+    let routage_reponse = if let TypeMessageOut::Requete(requete_info) = &m.type_message {
+        let correlation_id = match requete_info.correlation_id.as_ref() {
+            Some(inner) => {
+                let correlation_id = inner.as_str();
+                let corr_split: Vec<&str> = correlation_id.split("/").collect();
+                corr_split[1].to_string()
+            },
+            None => Err("requete_get_documents_groupe Correlation_id manquante pour reponse")?
+        };
+        let reply_to = match requete_info.reply_to.as_ref() {
+            Some(inner) => inner.as_str(),
+            None => Err("requete_get_documents_groupe Correlation_id manquante pour reponse")?
+        };
+        RoutageMessageReponse::new(reply_to, correlation_id)
+    } else {
+        Err("requete.requete_get_documents_groupe Mauvais type de message en parametre, doit etre requete")?
+    };
+
     let user_id = match m.certificat.get_user_id()? {
         Some(u) => u,
         None => return Ok(Some(middleware.reponse_err(None, None, Some("Access denied"))?))
     };
 
     let supprime_only = requete.supprime == Some(true);
-
     let date_sync = requete.date_sync;
-
-    let limit = match requete.limit {
-        Some(l) => l,
-        None => 100
-    };
-    let skip = match requete.skip {
-        Some(s) => s,
-        None => 0
-    };
-
+    let stream_response = requete.stream == Some(true);
     let current_sync_date = Utc::now();
 
+    if stream_response {
+        debug!("Streaming response to {:?}", routage_reponse);
+        // Retourner un message de confirmation pour indiquer le debut du streaming
+        let mut reponse_ok = middleware.reponse_ok(1, None)?;
+        let mut reponse_owned = reponse_ok.parse_to_owned()?;
+        reponse_owned.ajouter_attachement("streaming", true)?;
+        let reponse_ok: MessageMilleGrillesBufferDefault = reponse_owned.try_into()?;
+        middleware.emettre_message(TypeMessageOut::Reponse(routage_reponse.clone()), reponse_ok).await?;
+    }
+
+    let mut taille_documents = 32;
     let (liste_documents, liste_supprimes) = {
         let mut liste_documents = Vec::new();
         let mut liste_supprimes = Vec::new();
@@ -361,9 +384,35 @@ async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValide, gesti
 
         let mut curseur = collection.find(filtre, None).await?;
         while curseur.advance().await? {
-        // while let Some(doc_groupe) = curseur.next().await {
-            // let doc: DocDocument = convertir_bson_deserializable(doc_groupe?)?;
             let doc = curseur.deserialize_current()?;
+
+            // Compteur de taille de reponse:
+            // data_chiffre plus padding de bytes approximant le reste du message
+            taille_documents += doc.data_chiffre.len() + CONST_DOCUMENT_META_LEN;
+
+            if stream_response && !liste_documents.is_empty() && taille_documents > CONST_STREAMING_BATCH_LEN {
+                // On a depasse la limite de streaming, emettre le document immediatement
+                // Note: on s'assure d'avoir au moins 1 document meme s'il depasse la limite.
+
+                let reponse = ReponseGetDocumentsGroupe {
+                    documents: &liste_documents,
+                    supprimes: &liste_supprimes,
+                    date_sync: &current_sync_date,
+                    done: false,
+                };
+
+                // Generer reponse, ajouter flag streaming=true dans attachements
+                let reponse = middleware.build_reponse(&reponse)?.0;
+                let mut reponse_owned = reponse.parse_to_owned()?;
+                reponse_owned.ajouter_attachement("streaming", true)?;
+                let reponse: MessageMilleGrillesBufferDefault = reponse_owned.try_into()?;
+                middleware.emettre_message(TypeMessageOut::Reponse(routage_reponse.clone()), reponse).await?;
+
+                // Reset liste et compteur (a taille du document courant)
+                taille_documents = doc.data_chiffre.len() + CONST_DOCUMENT_META_LEN;
+                liste_documents.clear();
+                liste_supprimes.clear();
+            }
 
             if supprime_only {
                 if Some(true) == doc.supprime {
@@ -383,9 +432,18 @@ async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValide, gesti
     };
 
     let reponse = ReponseGetDocumentsGroupe {
-        documents: liste_documents,
-        supprimes: liste_supprimes,
-        date_sync: current_sync_date,
+        documents: &liste_documents,
+        supprimes: &liste_supprimes,
+        date_sync: &current_sync_date,
+        done: true,
     };
-    Ok(Some(middleware.build_reponse(&reponse)?.0))
+
+    // Derniere reponse, incluant si streaming
+    let reponse = middleware.build_reponse(&reponse)?.0;
+    if stream_response {
+        middleware.emettre_message(TypeMessageOut::Reponse(routage_reponse), reponse).await?;
+        Ok(None)
+    } else {
+        Ok(Some(reponse))
+    }
 }
