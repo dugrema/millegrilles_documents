@@ -291,6 +291,7 @@ async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValide, gestionna
         liste_hachage_bytes: None,
         cle_ids: Some(cle_ids),
         certificat_rechiffrage: Some(certificat_client),
+        inclure_signature: None,
     };
 
     middleware.transmettre_requete(routage, &requete_cles).await?;
