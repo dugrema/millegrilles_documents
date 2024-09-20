@@ -81,6 +81,7 @@ pub struct TransactionSauvegarderDocument {
     #[serde(with="formatchiffragestr")]
     pub format: FormatChiffrage,
     pub nonce: Option<String>,
+    pub compression: Option<String>,
 
     pub header: Option<String>,
 }
@@ -101,6 +102,7 @@ pub struct DocDocument {
     #[serde(with="formatchiffragestr")]
     pub format: FormatChiffrage,
     pub nonce: Option<String>,
+    pub compression: Option<String>,
 
     pub header: Option<String>,
 }

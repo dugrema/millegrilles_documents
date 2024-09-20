@@ -328,6 +328,7 @@ async fn transaction_sauvegarder_document<M>(gestionnaire: &GestionnaireDocument
         "header": transaction_doc.header,
         "cle_id": transaction_doc.cle_id,
         "nonce": transaction_doc.nonce,
+        "compression": transaction_doc.compression,
     };
 
     // Remplacer la version la plus recente
