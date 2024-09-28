@@ -4,7 +4,7 @@ use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissi
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::{get_domaine_action, serde_json};
-use millegrilles_common_rust::middleware::sauvegarder_traiter_transaction;
+use millegrilles_common_rust::middleware::{sauvegarder_traiter_transaction, sauvegarder_traiter_transaction_v2};
 use millegrilles_common_rust::millegrilles_cryptographie::chiffrage_cles::CleChiffrageHandler;
 use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{MessageMilleGrillesBufferDefault, MessageMilleGrillesOwned, MessageValidable};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, MongoDao};
@@ -17,10 +17,10 @@ use millegrilles_common_rust::millegrilles_cryptographie::deser_message_buffer;
 use serde::{Deserialize, Serialize};
 use crate::common::*;
 use crate::constantes::*;
-use crate::gestionnaire::GestionnaireDocuments;
+use crate::domain_manager::DocumentsDomainManager;
 
-pub async fn consommer_commande<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
-    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+pub async fn consommer_commande<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
+                                   -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao + ValidateurX509 + CleChiffrageHandler
 {
     debug!("consommer_commande : {:?}", &m.type_message);
@@ -68,7 +68,7 @@ struct EvenementMaj {
     group: Option<TransactionSauvegarderGroupeUsager>,
 }
 
-async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
@@ -117,7 +117,7 @@ async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValide, gest
     }
 
     // Traiter la transaction
-    let reponse_transaction = sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?;
+    let reponse_transaction = sauvegarder_traiter_transaction_v2(middleware, m, gestionnaire).await?;
 
     // Injecter le nouveau categorie_id
     if commande.categorie_id.is_none() {
@@ -134,7 +134,7 @@ async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValide, gest
     Ok(reponse_transaction)
 }
 
-async fn commande_sauvegarder_groupe<M>(middleware: &M, mut m: MessageValide, gestionnaire: &GestionnaireDocuments)
+async fn commande_sauvegarder_groupe<M>(middleware: &M, mut m: MessageValide, gestionnaire: &DocumentsDomainManager)
                                         -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
@@ -213,7 +213,7 @@ async fn commande_sauvegarder_groupe<M>(middleware: &M, mut m: MessageValide, ge
     }
 
     // Traiter la transaction
-    let resultat = sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?;
+    let resultat = sauvegarder_traiter_transaction_v2(middleware, m, gestionnaire).await?;
 
     // S'assurer de retourner le group_id
     if commande.groupe_id.is_none() {
@@ -234,7 +234,7 @@ struct EvenementDocumentMaj {
     document: TransactionSauvegarderDocument,
 }
 
-async fn commande_sauvegarder_document<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+async fn commande_sauvegarder_document<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
                                           -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
@@ -277,7 +277,7 @@ async fn commande_sauvegarder_document<M>(middleware: &M, m: MessageValide, gest
     }
 
     // Traiter la transaction
-    let resultat = sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?;
+    let resultat = sauvegarder_traiter_transaction_v2(middleware, m, gestionnaire).await?;
 
     // Emettre evenement maj
     let mut evenement = EvenementDocumentMaj { document: commande };
@@ -342,7 +342,7 @@ struct EvenementDocumentSupprime {
     supprime: bool,
 }
 
-async fn commande_supprimer_document<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+async fn commande_supprimer_document<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
@@ -382,7 +382,7 @@ async fn commande_supprimer_document<M>(middleware: &M, m: MessageValide, gestio
     };
 
     // Traiter la transaction
-    let resultat = sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?;
+    let resultat = sauvegarder_traiter_transaction_v2(middleware, m, gestionnaire).await?;
 
     // Emettre evenement maj
     let evenement = EvenementDocumentSupprime { doc_id, supprime: true };
@@ -397,7 +397,7 @@ async fn commande_supprimer_document<M>(middleware: &M, m: MessageValide, gestio
     Ok(resultat)
 }
 
-async fn commande_recuperer_document<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+async fn commande_recuperer_document<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
@@ -434,7 +434,7 @@ async fn commande_recuperer_document<M>(middleware: &M, m: MessageValide, gestio
     };
 
     // Traiter la transaction
-    let resultat = sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?;
+    let resultat = sauvegarder_traiter_transaction_v2(middleware, m, gestionnaire).await?;
 
     // Emettre evenement maj
     let evenement = EvenementDocumentSupprime { doc_id: commande.doc_id, supprime: false };
@@ -454,7 +454,7 @@ struct EvenementGroupeSupprime {
     supprime: bool,
 }
 
-async fn commande_supprimer_groupe<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+async fn commande_supprimer_groupe<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
@@ -491,7 +491,7 @@ async fn commande_supprimer_groupe<M>(middleware: &M, m: MessageValide, gestionn
     };
 
     // Traiter la transaction
-    let resultat = sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?;
+    let resultat = sauvegarder_traiter_transaction_v2(middleware, m, gestionnaire).await?;
 
     // Emettre evenement maj
     let evenement = EvenementGroupeSupprime { groupe_id: commande.groupe_id, supprime: true };
@@ -505,7 +505,7 @@ async fn commande_supprimer_groupe<M>(middleware: &M, m: MessageValide, gestionn
     Ok(resultat)
 }
 
-async fn commande_recuperer_groupe<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+async fn commande_recuperer_groupe<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
                                       -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
 where M: GenerateurMessages + MongoDao + ValidateurX509
 {
@@ -542,7 +542,7 @@ where M: GenerateurMessages + MongoDao + ValidateurX509
     };
 
     // Traiter la transaction
-    let resultat = sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?;
+    let resultat = sauvegarder_traiter_transaction_v2(middleware, m, gestionnaire).await?;
 
     // Emettre evenement maj
     let evenement = EvenementGroupeSupprime { groupe_id: commande.groupe_id, supprime: false };

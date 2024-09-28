@@ -24,9 +24,9 @@ use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{epo
 
 use crate::common::{DocCategorieUsager, DocDocument, DocGroupeUsager};
 use crate::constantes::*;
-use crate::gestionnaire::GestionnaireDocuments;
+use crate::domain_manager::DocumentsDomainManager;
 
-pub async fn consommer_requete<M>(middleware: &M, message: MessageValide, gestionnaire: &GestionnaireDocuments)
+pub async fn consommer_requete<M>(middleware: &M, message: MessageValide, gestionnaire: &DocumentsDomainManager)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: ValidateurX509 + GenerateurMessages + MongoDao
 {
@@ -74,7 +74,7 @@ struct RequeteGetCategoriesUsager {
     skip: Option<i32>,
 }
 
-async fn requete_get_categories_usager<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+async fn requete_get_categories_usager<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
@@ -129,7 +129,7 @@ struct ReponseGetGroupes {
     date_sync: DateTime<Utc>,
 }
 
-async fn requete_get_groupes_usager<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+async fn requete_get_groupes_usager<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
@@ -214,7 +214,7 @@ struct GroupeUsager {
     ref_hachage_bytes: Option<String>,
 }
 
-async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
@@ -321,7 +321,7 @@ struct ReponseGetDocumentsGroupe<'a> {
     done: bool,
 }
 
-async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {

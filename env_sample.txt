@@ -11,3 +11,4 @@ MG_NOEUD_ID=DUMMY-DEV1
 MG_REDIS_PASSWORD_FILE=/var/opt/millegrilles/secrets/passwd.redis.txt
 MG_REDIS_URL=rediss://client_rust@localhost:6379#insecure
 RUST_LOG=warn,millegrilles_documents=debug,millegrilles_common_rust=debug
+INSTANCE_ID=DUMMY

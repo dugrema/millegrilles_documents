@@ -8,7 +8,7 @@ use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::db_structs::TransactionValide;
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::{get_domaine_action, serde_json};
-use millegrilles_common_rust::middleware::sauvegarder_traiter_transaction;
+use millegrilles_common_rust::middleware::{sauvegarder_traiter_transaction, sauvegarder_traiter_transaction_v2};
 use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::MessageMilleGrillesBufferDefault;
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, convertir_to_bson_array, MongoDao};
 use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, ReturnDocument, UpdateOptions};
@@ -20,10 +20,10 @@ use millegrilles_common_rust::error::Error;
 use serde::Serialize;
 use crate::common::*;
 use crate::constantes::*;
-use crate::gestionnaire::GestionnaireDocuments;
+use crate::domain_manager::DocumentsDomainManager;
 
-pub async fn aiguillage_transaction<M>(gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: TransactionValide)
-    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+pub async fn aiguillage_transaction<M>(gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide)
+                                       -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: ValidateurX509 + GenerateurMessages + MongoDao
 {
     let action = match transaction.transaction.routage.as_ref() {
@@ -45,7 +45,7 @@ pub async fn aiguillage_transaction<M>(gestionnaire: &GestionnaireDocuments, mid
     }
 }
 
-pub async fn consommer_transaction<M>(middleware: &M, m: MessageValide, gestionnaire: &GestionnaireDocuments)
+pub async fn consommer_transaction<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
 where
     M: ValidateurX509 + GenerateurMessages + MongoDao
@@ -72,7 +72,7 @@ where
         _ => Err(format!("transactions.consommer_transaction: Mauvais type d'action pour une transaction : {}", action))?,
     }
 
-    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    Ok(sauvegarder_traiter_transaction_v2(middleware, m, gestionnaire).await?)
 }
 
 #[derive(Serialize)]
@@ -81,7 +81,7 @@ struct ReponseTransactionSauvegarderCategorie {
     category_id: String,
 }
 
-async fn transaction_sauvegarder_categorie_usager<M>(gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: TransactionValide)
+async fn transaction_sauvegarder_categorie_usager<M>(gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
@@ -204,7 +204,7 @@ struct ReponseTransactionSauvegarderGroupe {
     group_id: String,
 }
 
-async fn transaction_sauvegarder_groupe_usager<M>(gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: TransactionValide)
+async fn transaction_sauvegarder_groupe_usager<M>(gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
@@ -291,7 +291,7 @@ struct ReponseTransactionSauvegarderDocument {
     doc_id: String,
 }
 
-async fn transaction_sauvegarder_document<M>(gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: TransactionValide)
+async fn transaction_sauvegarder_document<M>(gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
@@ -370,7 +370,7 @@ async fn transaction_sauvegarder_document<M>(gestionnaire: &GestionnaireDocument
     Ok(Some(middleware.build_reponse(reponse)?.0))
 }
 
-async fn transaction_supprimer_document<M>(_gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: TransactionValide)
+async fn transaction_supprimer_document<M>(_gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
@@ -411,7 +411,7 @@ async fn transaction_supprimer_document<M>(_gestionnaire: &GestionnaireDocuments
     Ok(Some(middleware.build_reponse(reponse)?.0))
 }
 
-async fn transaction_recuperer_document<M>(_gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: TransactionValide)
+async fn transaction_recuperer_document<M>(_gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
@@ -453,7 +453,7 @@ async fn transaction_recuperer_document<M>(_gestionnaire: &GestionnaireDocuments
     Ok(Some(middleware.build_reponse(reponse)?.0))
 }
 
-async fn transaction_supprimer_groupe<M>(_gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: TransactionValide)
+async fn transaction_supprimer_groupe<M>(_gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
@@ -494,7 +494,7 @@ async fn transaction_supprimer_groupe<M>(_gestionnaire: &GestionnaireDocuments, 
     Ok(Some(middleware.build_reponse(reponse)?.0))
 }
 
-async fn transaction_recuperer_groupe<M>(_gestionnaire: &GestionnaireDocuments, middleware: &M, transaction: TransactionValide)
+async fn transaction_recuperer_groupe<M>(_gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
