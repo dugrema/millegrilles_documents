@@ -333,7 +333,11 @@ async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValide, gesti
             Some(inner) => {
                 let correlation_id = inner.as_str();
                 let corr_split: Vec<&str> = correlation_id.split("/").collect();
-                corr_split[1].to_string()
+                if corr_split.len() == 2 {
+                    corr_split[1].to_string()
+                } else {
+                    corr_split[0].to_string()
+                }
             },
             None => Err("requete_get_documents_groupe Correlation_id manquante pour reponse")?
         };
