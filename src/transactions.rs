@@ -17,13 +17,14 @@ use millegrilles_common_rust::recepteur_messages::MessageValide;
 use millegrilles_common_rust::serde_json::json;
 use millegrilles_common_rust::transactions::Transaction;
 use millegrilles_common_rust::error::Error;
+use millegrilles_common_rust::mongodb::ClientSession;
 use serde::Serialize;
 use crate::common::*;
 use crate::constantes::*;
 use crate::domain_manager::DocumentsDomainManager;
 
-pub async fn aiguillage_transaction<M>(gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide)
-                                       -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+pub async fn aiguillage_transaction<M>(gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide, session: &mut ClientSession)
+    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: ValidateurX509 + GenerateurMessages + MongoDao
 {
     let action = match transaction.transaction.routage.as_ref() {
@@ -34,46 +35,46 @@ pub async fn aiguillage_transaction<M>(gestionnaire: &DocumentsDomainManager, mi
         None => Err(format!("transactions.aiguillage_transaction: Transaction {} n'a pas de routage - skip", transaction.transaction.id))?,
     };
     match action.as_str() {
-        TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER => transaction_sauvegarder_categorie_usager(gestionnaire, middleware, transaction).await,
-        TRANSACTION_SAUVEGARDER_GROUPE_USAGER => transaction_sauvegarder_groupe_usager(gestionnaire, middleware, transaction).await,
-        TRANSACTION_SAUVEGARDER_DOCUMENT => transaction_sauvegarder_document(gestionnaire, middleware, transaction).await,
-        TRANSACTION_SUPPRIMER_DOCUMENT => transaction_supprimer_document(gestionnaire, middleware, transaction).await,
-        TRANSACTION_RECUPERER_DOCUMENT => transaction_recuperer_document(gestionnaire, middleware, transaction).await,
-        TRANSACTION_SUPPRIMER_GROUPE => transaction_supprimer_groupe(gestionnaire, middleware, transaction).await,
-        TRANSACTION_RECUPERER_GROUPE => transaction_recuperer_groupe(gestionnaire, middleware, transaction).await,
+        TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER => transaction_sauvegarder_categorie_usager(gestionnaire, middleware, transaction, session).await,
+        TRANSACTION_SAUVEGARDER_GROUPE_USAGER => transaction_sauvegarder_groupe_usager(gestionnaire, middleware, transaction, session).await,
+        TRANSACTION_SAUVEGARDER_DOCUMENT => transaction_sauvegarder_document(gestionnaire, middleware, transaction, session).await,
+        TRANSACTION_SUPPRIMER_DOCUMENT => transaction_supprimer_document(gestionnaire, middleware, transaction, session).await,
+        TRANSACTION_RECUPERER_DOCUMENT => transaction_recuperer_document(gestionnaire, middleware, transaction, session).await,
+        TRANSACTION_SUPPRIMER_GROUPE => transaction_supprimer_groupe(gestionnaire, middleware, transaction, session).await,
+        TRANSACTION_RECUPERER_GROUPE => transaction_recuperer_groupe(gestionnaire, middleware, transaction, session).await,
         _ => Err(Error::String(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.transaction.id, action))),
     }
 }
 
-pub async fn consommer_transaction<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
-    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
-where
-    M: ValidateurX509 + GenerateurMessages + MongoDao
-{
-    debug!("transactions.consommer_transaction Consommer transaction : {:?}", &m.type_message);
-
-    let (_, action) = get_domaine_action!(m.type_message);
-
-    // Autorisation
-    match action.as_str() {
-        // 4.secure - doivent etre validees par une commande
-        TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER |
-        TRANSACTION_SAUVEGARDER_GROUPE_USAGER |
-        TRANSACTION_SAUVEGARDER_DOCUMENT |
-        TRANSACTION_SUPPRIMER_DOCUMENT |
-        TRANSACTION_RECUPERER_DOCUMENT |
-        TRANSACTION_SUPPRIMER_GROUPE |
-        TRANSACTION_RECUPERER_GROUPE => {
-            match m.certificat.verifier_exchanges(vec![Securite::L4Secure])? {
-                true => Ok(()),
-                false => Err(format!("transactions.consommer_transaction: Message autorisation invalide (pas 4.secure)"))
-            }?;
-        },
-        _ => Err(format!("transactions.consommer_transaction: Mauvais type d'action pour une transaction : {}", action))?,
-    }
-
-    Ok(sauvegarder_traiter_transaction_v2(middleware, m, gestionnaire).await?)
-}
+// pub async fn consommer_transaction<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
+//     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
+// where
+//     M: ValidateurX509 + GenerateurMessages + MongoDao
+// {
+//     debug!("transactions.consommer_transaction Consommer transaction : {:?}", &m.type_message);
+//
+//     let (_, action) = get_domaine_action!(m.type_message);
+//
+//     // Autorisation
+//     match action.as_str() {
+//         // 4.secure - doivent etre validees par une commande
+//         TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER |
+//         TRANSACTION_SAUVEGARDER_GROUPE_USAGER |
+//         TRANSACTION_SAUVEGARDER_DOCUMENT |
+//         TRANSACTION_SUPPRIMER_DOCUMENT |
+//         TRANSACTION_RECUPERER_DOCUMENT |
+//         TRANSACTION_SUPPRIMER_GROUPE |
+//         TRANSACTION_RECUPERER_GROUPE => {
+//             match m.certificat.verifier_exchanges(vec![Securite::L4Secure])? {
+//                 true => Ok(()),
+//                 false => Err(format!("transactions.consommer_transaction: Message autorisation invalide (pas 4.secure)"))
+//             }?;
+//         },
+//         _ => Err(format!("transactions.consommer_transaction: Mauvais type d'action pour une transaction : {}", action))?,
+//     }
+//
+//     Ok(sauvegarder_traiter_transaction_v2(middleware, m, gestionnaire).await?)
+// }
 
 #[derive(Serialize)]
 struct ReponseTransactionSauvegarderCategorie {
@@ -81,7 +82,7 @@ struct ReponseTransactionSauvegarderCategorie {
     category_id: String,
 }
 
-async fn transaction_sauvegarder_categorie_usager<M>(gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide)
+async fn transaction_sauvegarder_categorie_usager<M>(gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide, session: &mut ClientSession)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
@@ -141,7 +142,7 @@ async fn transaction_sauvegarder_categorie_usager<M>(gestionnaire: &DocumentsDom
             .upsert(true)
             .return_document(ReturnDocument::After)
             .build();
-        let resultat: TransactionSauvegarderCategorieUsager = match collection.find_one_and_update(filtre, ops, options).await {
+        let resultat: TransactionSauvegarderCategorieUsager = match collection.find_one_and_update_with_session(filtre, ops, options, session).await {
             Ok(inner) => match inner {
                 Some(inner) => match convertir_bson_deserializable(inner) {
                     Ok(inner) => inner,
@@ -171,7 +172,7 @@ async fn transaction_sauvegarder_categorie_usager<M>(gestionnaire: &DocumentsDom
 
         let collection = middleware.get_collection(NOM_COLLECTION_CATEGORIES_USAGERS_VERSION)?;
         let options = UpdateOptions::builder().upsert(true).build();
-        let resultat = match collection.update_one(filtre, ops, options).await {
+        let resultat = match collection.update_one_with_session(filtre, ops, options, session).await {
             Ok(inner) => inner,
             Err(e) => Err(format!("transactions.transaction_sauvegarder_categorie_usager Erreur insert/maj categorie usager : {:?}", e))?
         };
@@ -204,7 +205,7 @@ struct ReponseTransactionSauvegarderGroupe {
     group_id: String,
 }
 
-async fn transaction_sauvegarder_groupe_usager<M>(gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide)
+async fn transaction_sauvegarder_groupe_usager<M>(gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide, session: &mut ClientSession)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
@@ -261,7 +262,7 @@ async fn transaction_sauvegarder_groupe_usager<M>(gestionnaire: &DocumentsDomain
             .upsert(true)
             .return_document(ReturnDocument::After)
             .build();
-        let resultat: TransactionSauvegarderGroupeUsager = match collection.find_one_and_update(filtre, ops, options).await {
+        let resultat: TransactionSauvegarderGroupeUsager = match collection.find_one_and_update_with_session(filtre, ops, options, session).await {
             Ok(inner) => match inner {
                 Some(inner) => match convertir_bson_deserializable(inner) {
                     Ok(inner) => inner,
@@ -291,7 +292,7 @@ struct ReponseTransactionSauvegarderDocument {
     doc_id: String,
 }
 
-async fn transaction_sauvegarder_document<M>(gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide)
+async fn transaction_sauvegarder_document<M>(gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide, session: &mut ClientSession)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
@@ -349,7 +350,7 @@ async fn transaction_sauvegarder_document<M>(gestionnaire: &DocumentsDomainManag
             .upsert(true)
             .return_document(ReturnDocument::After)
             .build();
-        let resultat = match collection.find_one_and_update(filtre, ops, options).await {
+        let resultat = match collection.find_one_and_update_with_session(filtre, ops, options, session).await {
             Ok(inner) => match inner {
                 Some(inner) => inner,
                 None => Err(format!("transactions.transaction_sauvegarder_document Erreur insert/maj groupe usager (None)"))?
@@ -370,7 +371,7 @@ async fn transaction_sauvegarder_document<M>(gestionnaire: &DocumentsDomainManag
     Ok(Some(middleware.build_reponse(reponse)?.0))
 }
 
-async fn transaction_supprimer_document<M>(_gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide)
+async fn transaction_supprimer_document<M>(_gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide, session: &mut ClientSession)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
@@ -399,7 +400,7 @@ async fn transaction_supprimer_document<M>(_gestionnaire: &DocumentsDomainManage
     };
 
     let collection = middleware.get_collection_typed::<DocDocument>(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
-    match collection.find_one_and_update(filtre, ops, None).await {
+    match collection.find_one_and_update_with_session(filtre, ops, None, session).await {
         Ok(inner) => match inner {
             Some(_inner) => (),
             None => Err(format!("transactions.transaction_supprimer_document Erreur insert/maj groupe usager (None)"))?
@@ -411,7 +412,7 @@ async fn transaction_supprimer_document<M>(_gestionnaire: &DocumentsDomainManage
     Ok(Some(middleware.build_reponse(reponse)?.0))
 }
 
-async fn transaction_recuperer_document<M>(_gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide)
+async fn transaction_recuperer_document<M>(_gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide, session: &mut ClientSession)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
@@ -441,7 +442,7 @@ async fn transaction_recuperer_document<M>(_gestionnaire: &DocumentsDomainManage
     };
 
     let collection = middleware.get_collection_typed::<DocDocument>(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
-    match collection.find_one_and_update(filtre, ops, None).await {
+    match collection.find_one_and_update_with_session(filtre, ops, None, session).await {
         Ok(inner) => match inner {
             Some(_inner) => (),
             None => Err(format!("transactions.transaction_recuperer_document Erreur insert/maj groupe usager (None)"))?
@@ -453,7 +454,7 @@ async fn transaction_recuperer_document<M>(_gestionnaire: &DocumentsDomainManage
     Ok(Some(middleware.build_reponse(reponse)?.0))
 }
 
-async fn transaction_supprimer_groupe<M>(_gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide)
+async fn transaction_supprimer_groupe<M>(_gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide, session: &mut ClientSession)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
@@ -482,7 +483,7 @@ async fn transaction_supprimer_groupe<M>(_gestionnaire: &DocumentsDomainManager,
     };
 
     let collection = middleware.get_collection_typed::<DocGroupeUsager>(NOM_COLLECTION_GROUPES_USAGERS)?;
-    match collection.find_one_and_update(filtre, ops, None).await {
+    match collection.find_one_and_update_with_session(filtre, ops, None, session).await {
         Ok(inner) => match inner {
             Some(_inner) => (),
             None => Err(format!("transactions.transaction_supprimer_groupe Erreur insert/maj groupe usager (None)"))?
@@ -494,7 +495,7 @@ async fn transaction_supprimer_groupe<M>(_gestionnaire: &DocumentsDomainManager,
     Ok(Some(middleware.build_reponse(reponse)?.0))
 }
 
-async fn transaction_recuperer_groupe<M>(_gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide)
+async fn transaction_recuperer_groupe<M>(_gestionnaire: &DocumentsDomainManager, middleware: &M, transaction: TransactionValide, session: &mut ClientSession)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
@@ -524,7 +525,7 @@ async fn transaction_recuperer_groupe<M>(_gestionnaire: &DocumentsDomainManager,
     };
 
     let collection = middleware.get_collection_typed::<DocGroupeUsager>(NOM_COLLECTION_GROUPES_USAGERS)?;
-    match collection.find_one_and_update(filtre, ops, None).await {
+    match collection.find_one_and_update_with_session(filtre, ops, None, session).await {
         Ok(inner) => match inner {
             Some(_inner) => (),
             None => Err(format!("transactions.transaction_recuperer_groupe Erreur insert/maj groupe usager (None)"))?
