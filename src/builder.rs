@@ -1,4 +1,4 @@
-use crate::domain_manager::{preparer_index_mongodb, DocumentsDomainManager};
+use crate::domain_manager::DocumentsDomainManager;
 use log::{debug, info, warn};
 use millegrilles_common_rust::{chrono, tokio};
 use millegrilles_common_rust::chrono::Utc;
@@ -75,9 +75,9 @@ where M: Middleware + IsConfigNoeud
     let futures = gestionnaire.initialiser(middleware).await
         .expect("initialiser");
 
-    // Preparer des ressources additionnelles
-    preparer_index_mongodb(middleware).await
-        .expect("preparer_index_mongodb");
+    // // Preparer des ressources additionnelles  // moved to trait
+    // preparer_index_mongodb(middleware).await
+    //     .expect("preparer_index_mongodb");
 
     Ok((gestionnaire, futures))
 }

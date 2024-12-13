@@ -8,7 +8,7 @@ use millegrilles_common_rust::configuration::ConfigMessages;
 use millegrilles_common_rust::constantes::{Securite, DEFAULT_Q_TTL};
 use millegrilles_common_rust::db_structs::TransactionValide;
 use millegrilles_common_rust::domaines_traits::{AiguillageTransactions, ConsommateurMessagesBus, GestionnaireBusMillegrilles, GestionnaireDomaineV2};
-use millegrilles_common_rust::domaines_v2::GestionnaireDomaineSimple;
+use millegrilles_common_rust::domaines_v2::{prepare_mongodb_domain_indexes, GestionnaireDomaineSimple};
 use millegrilles_common_rust::generateur_messages::GenerateurMessages;
 use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::MessageMilleGrillesBufferDefault;
 use millegrilles_common_rust::mongo_dao::{ChampIndex, IndexOptions, MongoDao};
@@ -106,6 +106,17 @@ impl AiguillageTransactions for DocumentsDomainManager {
 
 #[async_trait]
 impl GestionnaireDomaineSimple for DocumentsDomainManager {
+    async fn preparer_database_mongodb<M>(&self, middleware: &M) -> Result<(), CommonError>
+    where
+        M: MongoDao + ConfigMessages
+    {
+        if let Some(nom_collection_transactions) = self.get_collection_transactions() {
+            prepare_mongodb_domain_indexes(middleware, nom_collection_transactions).await?;
+            preparer_index_mongodb(middleware).await?;
+        }
+        Ok(())
+    }
+
     async fn traiter_cedule<M>(&self, middleware: &M, trigger: &MessageCedule) -> Result<(), CommonError>
     where
         M: MiddlewareMessages + BackupStarter + MongoDao
@@ -172,7 +183,7 @@ pub fn preparer_queues(manager: &DocumentsDomainManager) -> Vec<QueueType> {
     queues
 }
 
-pub async fn preparer_index_mongodb<M>(middleware: &M) -> Result<(), CommonError>
+async fn preparer_index_mongodb<M>(middleware: &M) -> Result<(), CommonError>
 where M: MongoDao + ConfigMessages
 {
     // Index categorie_id / user_id pour categories_usager
