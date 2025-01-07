@@ -4,7 +4,7 @@ run --package millegrilles_documents --bin millegrilles_documents
 
 CAFILE=/var/opt/millegrilles/configuration/pki.millegrille.cert
 CERTFILE=/var/opt/millegrilles/secrets/pki.documents_backend.cert
-KEYFILE=/var/opt/millegrilles/secrets/pki.documents_backend.cle
+KEYFILE=/var/opt/millegrilles/secrets/pki.documents_backend.key
 MG_MONGO_HOST=localhost
 MG_MQ_HOST=localhost
 MG_NOEUD_ID=DUMMY-DEV1
