@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use log::{debug, error};
 
 use millegrilles_common_rust::bson::doc;
@@ -6,21 +5,20 @@ use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissi
 use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::common_messages::RequeteDechiffrage;
 use millegrilles_common_rust::constantes::*;
+use millegrilles_common_rust::error::Error;
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction, RoutageMessageReponse};
 use millegrilles_common_rust::get_domaine_action;
-use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{MessageMilleGrillesBufferAlloc, MessageMilleGrillesBufferDefault};
+use millegrilles_common_rust::millegrilles_cryptographie::chiffrage::formatchiffragestr;
+use millegrilles_common_rust::millegrilles_cryptographie::chiffrage::FormatChiffrage;
+use millegrilles_common_rust::millegrilles_cryptographie::deser_message_buffer;
+use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::MessageMilleGrillesBufferDefault;
+use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{epochseconds, optionepochseconds};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, MongoDao};
 use millegrilles_common_rust::rabbitmq_dao::TypeMessageOut;
 use millegrilles_common_rust::recepteur_messages::MessageValide;
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
-use millegrilles_common_rust::serde_json::{json, Value};
+use millegrilles_common_rust::serde_json::json;
 use millegrilles_common_rust::tokio_stream::StreamExt;
-use millegrilles_common_rust::error::Error;
-use millegrilles_common_rust::formatteur_messages::build_reponse;
-use millegrilles_common_rust::millegrilles_cryptographie::chiffrage::FormatChiffrage;
-use millegrilles_common_rust::millegrilles_cryptographie::deser_message_buffer;
-use millegrilles_common_rust::millegrilles_cryptographie::chiffrage::formatchiffragestr;
-use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{epochseconds, optionepochseconds};
 
 use crate::common::{DocCategorieUsager, DocDocument, DocGroupeUsager};
 use crate::constantes::*;
@@ -74,25 +72,16 @@ struct RequeteGetCategoriesUsager {
     skip: Option<i32>,
 }
 
-async fn requete_get_categories_usager<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
+async fn requete_get_categories_usager<M>(middleware: &M, m: MessageValide, _gestionnaire: &DocumentsDomainManager)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
     debug!("requete_get_categories_usager Message : {:?}", & m.type_message);
-    let requete: RequeteGetCategoriesUsager = deser_message_buffer!(m.message);
+    let _requete: RequeteGetCategoriesUsager = deser_message_buffer!(m.message);
 
     let user_id = match m.certificat.get_user_id()? {
         Some(u) => u,
         None => return Ok(Some(middleware.reponse_err(None, None, Some("Access denied"))?))
-    };
-
-    let limit = match requete.limit {
-        Some(l) => l,
-        None => 100
-    };
-    let skip = match requete.skip {
-        Some(s) => s,
-        None => 0
     };
 
     let categories = {
@@ -129,7 +118,7 @@ struct ReponseGetGroupes {
     date_sync: DateTime<Utc>,
 }
 
-async fn requete_get_groupes_usager<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
+async fn requete_get_groupes_usager<M>(middleware: &M, m: MessageValide, _gestionnaire: &DocumentsDomainManager)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
@@ -139,15 +128,6 @@ async fn requete_get_groupes_usager<M>(middleware: &M, m: MessageValide, gestion
     let user_id = match m.certificat.get_user_id()? {
         Some(u) => u,
         None => return Ok(Some(middleware.reponse_err(None, None, Some("Access denied"))?))
-    };
-
-    let limit = match requete.limit {
-        Some(l) => l,
-        None => 100
-    };
-    let skip = match requete.skip {
-        Some(s) => s,
-        None => 0
     };
 
     let date_sync = Utc::now();
@@ -214,7 +194,7 @@ struct GroupeUsager {
     ref_hachage_bytes: Option<String>,
 }
 
-async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
+async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValide, _gestionnaire: &DocumentsDomainManager)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
@@ -242,7 +222,7 @@ async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValide, gestionna
     while let Some(row) = curseur.next().await {
         let groupe_usager = match row {
             Ok(inner) => inner,
-            Err(e) => {
+            Err(_e) => {
                 error!("Erreur mapping groupe usager, skip");
                 continue
             }
@@ -303,8 +283,8 @@ async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValide, gestionna
 #[derive(Deserialize)]
 struct RequeteGetDocumentsGroupe {
     groupe_id: String,
-    limit: Option<i32>,
-    skip: Option<i32>,
+    // limit: Option<i32>,
+    // skip: Option<i32>,
     supprime: Option<bool>,
     /// Last sync date, allows for incremental download
     #[serde(default, deserialize_with = "optionepochseconds::deserialize")]
@@ -321,7 +301,7 @@ struct ReponseGetDocumentsGroupe<'a> {
     done: bool,
 }
 
-async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
+async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValide, _gestionnaire: &DocumentsDomainManager)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao
 {
@@ -363,7 +343,7 @@ async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValide, gesti
     if stream_response {
         debug!("Streaming response to {:?}", routage_reponse);
         // Retourner un message de confirmation pour indiquer le debut du streaming
-        let mut reponse_ok = middleware.reponse_ok(1, None)?;
+        let reponse_ok = middleware.reponse_ok(1, None)?;
         let mut reponse_owned = reponse_ok.parse_to_owned()?;
         reponse_owned.ajouter_attachement("streaming", true)?;
         let reponse_ok: MessageMilleGrillesBufferDefault = reponse_owned.try_into()?;
