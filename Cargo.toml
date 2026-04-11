@@ -1,15 +1,15 @@
 [package]
 name = "millegrilles_documents"
-version = "2025.4.34"
+version = "2026.0.34"
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-millegrilles_common_rust = { git = "https://github.com/dugrema/millegrilles_common_rust.git", label = "2025.4-release" }
+millegrilles_common_rust = { git = "https://github.com/dugrema/millegrilles_common_rust.git", label = "2026.0-release1" }
 # millegrilles_common_rust = { git = "https://github.com/dugrema/millegrilles_common_rust.git", branch = "master" }
 # millegrilles_common_rust = { path = "/home/mathieu/RustroverProjects/millegrilles_common_rust" }
 
-log = { version = "0.4.14", features = ["max_level_debug", "release_max_level_info"] }
-env_logger = "0.9.0"
-serde = { version = "1.0", features = ["derive"] }
+log = { version = "0.4.29", features = ["max_level_debug", "release_max_level_info"] }
+env_logger = "0.9.3"
+serde = { version = "1.0.228", features = ["derive"] }

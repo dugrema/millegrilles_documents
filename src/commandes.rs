@@ -1,24 +1,23 @@
+use crate::common::*;
+use crate::constantes::*;
+use crate::domain_manager::DocumentsDomainManager;
 use log::{debug, error};
 use millegrilles_common_rust::bson::doc;
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::constantes::*;
+use millegrilles_common_rust::error::Error;
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
-use millegrilles_common_rust::{get_domaine_action, serde_json};
-use millegrilles_common_rust::middleware::{sauvegarder_traiter_transaction, sauvegarder_traiter_transaction_v2};
+use millegrilles_common_rust::messages_generiques::ReponseCommande;
+use millegrilles_common_rust::middleware::sauvegarder_traiter_transaction_v2;
 use millegrilles_common_rust::millegrilles_cryptographie::chiffrage_cles::CleChiffrageHandler;
+use millegrilles_common_rust::millegrilles_cryptographie::deser_message_buffer;
 use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{MessageMilleGrillesBufferDefault, MessageMilleGrillesOwned, MessageValidable};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, start_transaction_regular, MongoDao};
+use millegrilles_common_rust::mongodb::ClientSession;
 use millegrilles_common_rust::rabbitmq_dao::TypeMessageOut;
 use millegrilles_common_rust::recepteur_messages::{MessageValide, TypeMessage};
-use millegrilles_common_rust::serde_json::{json, Value};
-use millegrilles_common_rust::error::Error;
-use millegrilles_common_rust::messages_generiques::ReponseCommande;
-use millegrilles_common_rust::millegrilles_cryptographie::deser_message_buffer;
-use millegrilles_common_rust::mongodb::ClientSession;
-use serde::{Deserialize, Serialize};
-use crate::common::*;
-use crate::constantes::*;
-use crate::domain_manager::DocumentsDomainManager;
+use millegrilles_common_rust::{get_domaine_action, serde_json};
+use serde::Serialize;
 
 pub async fn consommer_commande<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
                                    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
@@ -149,7 +148,7 @@ async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValide, gest
     Ok(reponse_transaction)
 }
 
-async fn commande_sauvegarder_groupe<M>(middleware: &M, mut m: MessageValide, gestionnaire: &DocumentsDomainManager, session: &mut ClientSession)
+async fn commande_sauvegarder_groupe<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager, session: &mut ClientSession)
                                         -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {

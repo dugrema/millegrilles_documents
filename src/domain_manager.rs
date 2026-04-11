@@ -1,38 +1,37 @@
-use log::{debug, error};
-use millegrilles_common_rust::error::Error as CommonError;
 use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::backup::BackupStarter;
 use millegrilles_common_rust::certificats::ValidateurX509;
-use millegrilles_common_rust::chrono::Timelike;
 use millegrilles_common_rust::configuration::ConfigMessages;
 use millegrilles_common_rust::constantes::{Securite, DEFAULT_Q_TTL};
 use millegrilles_common_rust::db_structs::TransactionValide;
 use millegrilles_common_rust::domaines_traits::{AiguillageTransactions, ConsommateurMessagesBus, GestionnaireBusMillegrilles, GestionnaireDomaineV2};
 use millegrilles_common_rust::domaines_v2::{prepare_mongodb_domain_indexes, GestionnaireDomaineSimple};
+use millegrilles_common_rust::error::Error as CommonError;
 use millegrilles_common_rust::generateur_messages::GenerateurMessages;
-use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::MessageMilleGrillesBufferDefault;
-use millegrilles_common_rust::mongo_dao::{ChampIndex, IndexOptions, MongoDao};
 use millegrilles_common_rust::messages_generiques::MessageCedule;
 use millegrilles_common_rust::middleware::{Middleware, MiddlewareMessages};
+use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::MessageMilleGrillesBufferDefault;
+use millegrilles_common_rust::mongo_dao::{ChampIndex, IndexOptions, MongoDao};
 use millegrilles_common_rust::mongodb::ClientSession;
 use millegrilles_common_rust::rabbitmq_dao::{ConfigQueue, ConfigRoutingExchange, QueueType};
 use millegrilles_common_rust::recepteur_messages::MessageValide;
 
-use crate::common::*;
-use crate::constantes::*;
 use crate::commandes::consommer_commande;
-use crate::requetes::consommer_requete;
+use crate::constantes::*;
 use crate::evenements::consommer_evenement;
+use crate::requetes::consommer_requete;
 use crate::transactions::aiguillage_transaction;
 
 #[derive(Clone)]
 pub struct DocumentsDomainManager {
-    pub instance_id: String,
+    // pub instance_id: String,
 }
 
 impl DocumentsDomainManager {
-    pub fn new(instance_id: String) -> DocumentsDomainManager {
-        DocumentsDomainManager { instance_id }
+    pub fn new(_instance_id: String) -> DocumentsDomainManager {
+        DocumentsDomainManager {
+            // instance_id
+        }
     }
 }
 
@@ -117,7 +116,7 @@ impl GestionnaireDomaineSimple for DocumentsDomainManager {
         Ok(())
     }
 
-    async fn traiter_cedule<M>(&self, middleware: &M, trigger: &MessageCedule) -> Result<(), CommonError>
+    async fn traiter_cedule<M>(&self, _middleware: &M, _trigger: &MessageCedule) -> Result<(), CommonError>
     where
         M: MiddlewareMessages + BackupStarter + MongoDao
     {
@@ -135,7 +134,7 @@ impl GestionnaireDomaineSimple for DocumentsDomainManager {
     }
 }
 
-pub fn preparer_queues(manager: &DocumentsDomainManager) -> Vec<QueueType> {
+pub fn preparer_queues(_manager: &DocumentsDomainManager) -> Vec<QueueType> {
     let mut rk_volatils = Vec::new();
     //let mut rk_sauvegarder_cle = Vec::new();
 

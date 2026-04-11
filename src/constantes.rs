@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub const DOMAINE_NOM: &str = "Documents";
 pub const NOM_COLLECTION_TRANSACTIONS: &str = DOMAINE_NOM;
 pub const NOM_COLLECTION_CATEGORIES_USAGERS: &str = "Documents/categoriesUsagers";

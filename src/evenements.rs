@@ -1,15 +1,14 @@
 use log::debug;
 
-use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
-use millegrilles_common_rust::constantes::Securite;
+use crate::domain_manager::DocumentsDomainManager;
+use millegrilles_common_rust::certificats::ValidateurX509;
+use millegrilles_common_rust::error::Error;
 use millegrilles_common_rust::generateur_messages::GenerateurMessages;
+use millegrilles_common_rust::get_domaine_action;
 use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::MessageMilleGrillesBufferDefault;
 use millegrilles_common_rust::mongo_dao::MongoDao;
-use millegrilles_common_rust::recepteur_messages::MessageValide;
-use millegrilles_common_rust::error::Error;
-use millegrilles_common_rust::get_domaine_action;
 use millegrilles_common_rust::rabbitmq_dao::TypeMessageOut;
-use crate::domain_manager::DocumentsDomainManager;
+use millegrilles_common_rust::recepteur_messages::MessageValide;
 
 pub async fn consommer_evenement<M>(_gestionnaire: &DocumentsDomainManager, _middleware: &M, m: MessageValide)
                                     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
