@@ -1,0 +1,8 @@
+{
+  "name": "documents",
+  "version": "BUILD",
+  "labels": {
+    "en": "Documents for MilleGrilles",
+    "fr": "Documents pour MilleGrilles"
+  }
+}
