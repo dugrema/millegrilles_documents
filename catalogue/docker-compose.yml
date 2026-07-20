@@ -5,7 +5,7 @@ include:
 name: ${INSTANCE_NAME}
 
 services:
-  documents:
+  documents_backend:
     image: "replace_me"
     x-millegrilles-certificat:
       roles:
@@ -54,12 +54,12 @@ services:
 
 configs:
   documents_backend:
-    file: ${MILLEGRILLES_ROOT}/secrets/documents.cert.pem
+    file: ${MILLEGRILLES_ROOT}/secrets/documents_backend.cert.pem
   mgca:
     file: ${MILLEGRILLES_ROOT}/etc/millegrille.pem
 
 secrets:
   documents_backend:
-    file: ${MILLEGRILLES_ROOT}/secrets/documents.key.pem
+    file: ${MILLEGRILLES_ROOT}/secrets/documents_backend.key.pem
   passwd_redis:
     file: ${MILLEGRILLES_ROOT}/secrets/redis.txt
