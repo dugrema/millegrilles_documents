@@ -1,5 +1,5 @@
 use crate::domain_manager::DocumentsDomainManager;
-use log::{debug, info, warn};
+use millegrilles_common_rust::tracing::{debug, info, warn};
 use millegrilles_common_rust::chrono::Utc;
 use millegrilles_common_rust::configuration::IsConfigNoeud;
 use millegrilles_common_rust::domaines_v2::GestionnaireDomaineSimple;

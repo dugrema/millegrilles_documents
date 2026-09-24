@@ -1,4 +1,4 @@
-use log::debug;
+use millegrilles_common_rust::tracing::debug;
 
 use crate::domain_manager::DocumentsDomainManager;
 use millegrilles_common_rust::certificats::ValidateurX509;

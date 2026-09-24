@@ -2,7 +2,7 @@ use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::millegrilles_cryptographie::chiffrage::{FormatChiffrage, formatchiffragestr};
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::optionepochseconds;
-use millegrilles_common_rust::mongo_dao::opt_chrono_datetime_as_bson_datetime;
+use millegrilles_common_rust::mongo_serde::option_chrono_04_datetime;
 
 /// Commande/Transaction de sauvegarde d'une categorie usager.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -57,7 +57,7 @@ pub struct DocGroupeUsager {
     pub supprime: Option<bool>,
     #[serde(default,
         serialize_with = "optionepochseconds::serialize",
-        deserialize_with = "opt_chrono_datetime_as_bson_datetime::deserialize")]
+        deserialize_with = "option_chrono_04_datetime::deserialize")]
     pub supprime_date: Option<DateTime<Utc>>,
 
     pub cle_id: Option<String>,
@@ -95,7 +95,7 @@ pub struct DocDocument {
     pub supprime: Option<bool>,
     #[serde(default,
         serialize_with = "optionepochseconds::serialize",
-        deserialize_with = "opt_chrono_datetime_as_bson_datetime::deserialize")]
+        deserialize_with = "option_chrono_04_datetime::deserialize")]
     pub supprime_date: Option<DateTime<Utc>>,
 
     pub cle_id: Option<String>,

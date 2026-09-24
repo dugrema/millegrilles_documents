@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use log::debug;
+use millegrilles_common_rust::tracing::debug;
 use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::certificats::ValidateurX509;
 use millegrilles_common_rust::configuration::ConfigMessages;

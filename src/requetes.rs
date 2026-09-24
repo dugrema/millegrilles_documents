@@ -1,4 +1,4 @@
-use log::{debug, error};
+use millegrilles_common_rust::tracing::{debug, error};
 
 use millegrilles_common_rust::bson::doc;
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
@@ -13,7 +13,7 @@ use millegrilles_common_rust::millegrilles_cryptographie::chiffrage::FormatChiff
 use millegrilles_common_rust::millegrilles_cryptographie::deser_message_buffer;
 use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::MessageMilleGrillesBufferDefault;
 use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{epochseconds, optionepochseconds};
-use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, MongoDao};
+use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, MongoDao, MongoDaoTyped};
 use millegrilles_common_rust::rabbitmq_dao::TypeMessageOut;
 use millegrilles_common_rust::recepteur_messages::MessageValide;
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
@@ -26,7 +26,7 @@ use crate::domain_manager::DocumentsDomainManager;
 
 pub async fn consommer_requete<M>(middleware: &M, message: MessageValide, gestionnaire: &DocumentsDomainManager)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
-    where M: ValidateurX509 + GenerateurMessages + MongoDao
+    where M: ValidateurX509 + GenerateurMessages + MongoDaoTyped
 {
     debug!("Consommer requete : {:?}", &message.type_message);
 
@@ -90,7 +90,7 @@ async fn requete_get_categories_usager<M>(middleware: &M, m: MessageValide, _ges
         let filtre = doc! { "user_id": &user_id };
         let collection = middleware.get_collection(NOM_COLLECTION_CATEGORIES_USAGERS)?;
 
-        let mut curseur = collection.find(filtre, None).await?;
+        let mut curseur = collection.find(filtre).await?;
         while let Some(doc_categorie) = curseur.next().await {
             let categorie: DocCategorieUsager = convertir_bson_deserializable(doc_categorie?)?;
             categories.push(categorie);
@@ -140,7 +140,7 @@ async fn requete_get_groupes_usager<M>(middleware: &M, m: MessageValide, _gestio
         let filtre = doc! { "user_id": &user_id };
         let collection = middleware.get_collection(NOM_COLLECTION_GROUPES_USAGERS)?;
 
-        let mut curseur = collection.find(filtre, None).await?;
+        let mut curseur = collection.find(filtre).await?;
         while let Some(doc_groupe) = curseur.next().await {
             let groupe: DocGroupeUsager = convertir_bson_deserializable(doc_groupe?)?;
 
@@ -196,7 +196,7 @@ struct GroupeUsager {
 
 async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValide, _gestionnaire: &DocumentsDomainManager)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
-    where M: GenerateurMessages + MongoDao
+    where M: GenerateurMessages + MongoDaoTyped
 {
     debug!("requete_get_groupes_cles Message : {:?}", & m.type_message);
     let requete: RequeteGetGroupesCles = deser_message_buffer!(m.message);
@@ -216,7 +216,7 @@ async fn requete_get_groupes_cles<M>(middleware: &M, m: MessageValide, _gestionn
         ]
     };
     let collection = middleware.get_collection_typed::<GroupeUsager>(NOM_COLLECTION_GROUPES_USAGERS)?;
-    let mut curseur = collection.find(filtre, None).await?;
+    let mut curseur = collection.find(filtre).await?;
 
     let mut cle_ids = Vec::new();
     while let Some(row) = curseur.next().await {
@@ -303,7 +303,7 @@ struct ReponseGetDocumentsGroupe<'a> {
 
 async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValide, _gestionnaire: &DocumentsDomainManager)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
-    where M: GenerateurMessages + MongoDao
+    where M: GenerateurMessages + MongoDaoTyped
 {
     debug!("requete_get_documents_groupe Message : {:?}", m.type_message);
     let requete: RequeteGetDocumentsGroupe = deser_message_buffer!(m.message);
@@ -367,7 +367,7 @@ async fn requete_get_documents_groupe<M>(middleware: &M, m: MessageValide, _gest
         };
         let collection = middleware.get_collection_typed::<DocDocument>(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
 
-        let mut curseur = collection.find(filtre, None).await?;
+        let mut curseur = collection.find(filtre).await?;
         while curseur.advance().await? {
             let doc = curseur.deserialize_current()?;
 

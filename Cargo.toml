@@ -1,15 +1,18 @@
 [package]
 name = "millegrilles_documents"
-version = "2026.4.12"
+version = "2026.6.13"
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# millegrilles_common_rust = { git = "https://github.com/dugrema/millegrilles_common_rust.git", label = "2026.3-release" }
-millegrilles_common_rust = { git = "https://github.com/dugrema/millegrilles_common_rust.git", branch = "master" }
+millegrilles_common_rust = { git = "https://github.com/dugrema/millegrilles_common_rust.git", label = "2026.5-release" }
+# millegrilles_common_rust = { git = "https://github.com/dugrema/millegrilles_common_rust.git", branch = "master" }
 # millegrilles_common_rust = { path = "/home/mathieu/RustroverProjects/millegrilles_common_rust" }
 
-log = { version = "0.4.29", features = ["max_level_debug", "release_max_level_info"] }
-env_logger = "0.9.3"
 serde = { version = "1.0.228", features = ["derive"] }
+
+# CLI parsing for restore
+clap = "4.6.6"
+clap_derive = "4.6.4"
+rpassword = "7.5.4"

@@ -1,7 +1,7 @@
 use crate::common::*;
 use crate::constantes::*;
 use crate::domain_manager::DocumentsDomainManager;
-use log::{debug, error};
+use millegrilles_common_rust::tracing::{debug, error};
 use millegrilles_common_rust::bson::doc;
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::constantes::*;
@@ -12,7 +12,7 @@ use millegrilles_common_rust::middleware::sauvegarder_traiter_transaction_v2;
 use millegrilles_common_rust::millegrilles_cryptographie::chiffrage_cles::CleChiffrageHandler;
 use millegrilles_common_rust::millegrilles_cryptographie::deser_message_buffer;
 use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{MessageMilleGrillesBufferDefault, MessageMilleGrillesOwned, MessageValidable};
-use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, start_transaction_regular, MongoDao};
+use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, start_transaction_regular, MongoDao, MongoDaoTyped};
 use millegrilles_common_rust::mongodb::ClientSession;
 use millegrilles_common_rust::rabbitmq_dao::TypeMessageOut;
 use millegrilles_common_rust::recepteur_messages::{MessageValide, TypeMessage};
@@ -21,7 +21,7 @@ use serde::Serialize;
 
 pub async fn consommer_commande<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
                                    -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
-    where M: GenerateurMessages + MongoDao + ValidateurX509 + CleChiffrageHandler
+    where M: GenerateurMessages + MongoDaoTyped + ValidateurX509 + CleChiffrageHandler
 {
     debug!("consommer_commande : {:?}", &m.type_message);
 
@@ -84,7 +84,7 @@ struct EvenementMaj {
 
 async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager, session: &mut ClientSession)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
-    where M: GenerateurMessages + MongoDao + ValidateurX509
+    where M: GenerateurMessages + MongoDaoTyped + ValidateurX509
 {
     debug!("commande_sauvegader_categorie Consommer commande : {:?}", m.type_message);
     let message_id = {
@@ -116,7 +116,7 @@ async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValide, gest
                 // Note : pour une categorie qui n'est pas connue, on accepte n'importe quelle version initiale
                 let filtre = doc! { "categorie_id": categorie_id, "user_id": &user_id };
                 let collection = middleware.get_collection(NOM_COLLECTION_CATEGORIES_USAGERS)?;
-                let doc_categorie_option = collection.find_one_with_session(filtre, None, session).await?;
+                let doc_categorie_option = collection.find_one(filtre).session(&mut *session).await?;
                 if let Some(categorie) = doc_categorie_option {
                     let categorie: DocCategorieUsager = convertir_bson_deserializable(categorie)?;
                     if categorie.version >= version {
@@ -150,7 +150,7 @@ async fn commande_sauvegader_categorie<M>(middleware: &M, m: MessageValide, gest
 
 async fn commande_sauvegarder_groupe<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager, session: &mut ClientSession)
                                         -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
-    where M: GenerateurMessages + MongoDao + ValidateurX509
+    where M: GenerateurMessages + MongoDaoTyped + ValidateurX509
 {
     debug!("commande_sauvegader_groupe Consommer commande : {:?}", & m.type_message);
     let message_id = {
@@ -178,7 +178,7 @@ async fn commande_sauvegarder_groupe<M>(middleware: &M, m: MessageValide, gestio
     if let Some(groupe_id) = &commande.groupe_id {
         let filtre = doc! { "groupe_id": groupe_id, "user_id": &user_id };
         let collection = middleware.get_collection(NOM_COLLECTION_GROUPES_USAGERS)?;
-        let doc_groupe_option = collection.find_one_with_session(filtre, None, session).await?;
+        let doc_groupe_option = collection.find_one(filtre).session(&mut *session).await?;
         if let Some(groupe) = doc_groupe_option {
             let doc_groupe: DocGroupeUsager = convertir_bson_deserializable(groupe)?;
             if doc_groupe.categorie_id != commande.categorie_id {
@@ -213,7 +213,7 @@ async fn commande_sauvegarder_groupe<M>(middleware: &M, m: MessageValide, gestio
                 // S'assurer que le groupe existe (reutiliser la cle)
                 let collection = middleware.get_collection(NOM_COLLECTION_GROUPES_USAGERS)?;
                 let filter = doc! {"groupe_id": groupe_id};
-                let doc_existant = collection.find_one_with_session(filter, None, session).await?;
+                let doc_existant = collection.find_one(filter).session(&mut *session).await?;
                 if doc_existant.is_none() {
                     // Le groupe n'existe pas. On a besoin d'une cle attachee.
                     error!("Cle de nouveau groupe manquante (2)");
@@ -250,7 +250,7 @@ struct EvenementDocumentMaj {
 
 async fn commande_sauvegarder_document<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager, session: &mut ClientSession)
                                           -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
-    where M: GenerateurMessages + MongoDao + ValidateurX509
+    where M: GenerateurMessages + MongoDaoTyped + ValidateurX509
 {
     debug!("commande_sauvegarder_document Consommer commande : {:?}", m.type_message);
     let message_id = {
@@ -279,7 +279,7 @@ async fn commande_sauvegarder_document<M>(middleware: &M, m: MessageValide, gest
     if let Some(doc_id) = &commande.doc_id {
         let filtre = doc! { "doc_id": doc_id, "user_id": &user_id };
         let collection = middleware.get_collection(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
-        let doc_option = collection.find_one_with_session(filtre, None, session).await?;
+        let doc_option = collection.find_one(filtre).session(&mut *session).await?;
         if let Some(groupe) = doc_option {
             let doc_groupe: DocDocument = convertir_bson_deserializable(groupe)?;
             if doc_groupe.groupe_id != commande.groupe_id {
@@ -358,7 +358,7 @@ struct EvenementDocumentSupprime {
 
 async fn commande_supprimer_document<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager, session: &mut ClientSession)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
-    where M: GenerateurMessages + MongoDao + ValidateurX509
+    where M: GenerateurMessages + MongoDaoTyped + ValidateurX509
 {
     debug!("commande_supprimer_document Consommer commande : {:?}", m.type_message);
     let commande: TransactionSupprimerDocument = deser_message_buffer!(m.message);
@@ -383,7 +383,7 @@ async fn commande_supprimer_document<M>(middleware: &M, m: MessageValide, gestio
     // Verifier que le document existe et n'est pas supprime.
     let collection = middleware.get_collection_typed::<DocDocument>(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
     let filtre = doc!{"user_id": &user_id, "doc_id": &commande.doc_id};
-    let groupe_id = if let Some(doc_existant) = collection.find_one_with_session(filtre, None, session).await? {
+    let groupe_id = if let Some(doc_existant) = collection.find_one(filtre).session(&mut *session).await? {
         if Some(true) == doc_existant.supprime {
             // Document deja supprime
             error!("commande_supprimer_document Erreur document deja supprime");
@@ -413,7 +413,7 @@ async fn commande_supprimer_document<M>(middleware: &M, m: MessageValide, gestio
 
 async fn commande_recuperer_document<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager, session: &mut ClientSession)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
-    where M: GenerateurMessages + MongoDao + ValidateurX509
+    where M: GenerateurMessages + MongoDaoTyped + ValidateurX509
 {
     debug!("commande_recuperer_document Consommer commande : {:?}", m.type_message);
     let commande: TransactionSupprimerDocument = deser_message_buffer!(m.message);
@@ -436,7 +436,7 @@ async fn commande_recuperer_document<M>(middleware: &M, m: MessageValide, gestio
     // Verifier que le document existe et n'est pas supprime.
     let collection = middleware.get_collection_typed::<DocDocument>(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
     let filtre = doc!{"user_id": &user_id, "doc_id": &commande.doc_id};
-    if let Some(groupe_existant) = collection.find_one_with_session(filtre, None, session).await? {
+    if let Some(groupe_existant) = collection.find_one(filtre).session(&mut *session).await? {
         if Some(true) != groupe_existant.supprime {
             // Groupe deja recupere
             error!("commande_recuperer_document Erreur document deja recupere");
@@ -470,7 +470,7 @@ struct EvenementGroupeSupprime {
 
 async fn commande_supprimer_groupe<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager, session: &mut ClientSession)
     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
-    where M: GenerateurMessages + MongoDao + ValidateurX509
+    where M: GenerateurMessages + MongoDaoTyped + ValidateurX509
 {
     debug!("commande_supprimer_groupe Consommer commande : {:?}", m.type_message);
     let commande: TransactionSupprimerGroupe = deser_message_buffer!(m.message);
@@ -493,7 +493,7 @@ async fn commande_supprimer_groupe<M>(middleware: &M, m: MessageValide, gestionn
     // Verifier que le document existe et n'est pas supprime.
     let collection = middleware.get_collection_typed::<DocGroupeUsager>(NOM_COLLECTION_GROUPES_USAGERS)?;
     let filtre = doc!{"user_id": &user_id, "groupe_id": &commande.groupe_id};
-    if let Some(groupe_existant) = collection.find_one_with_session(filtre, None, session).await? {
+    if let Some(groupe_existant) = collection.find_one(filtre).session(&mut *session).await? {
         if Some(true) == groupe_existant.supprime {
             // Groupe deja supprime
             error!("commande_supprimer_groupe Erreur document deja supprime");
@@ -521,7 +521,7 @@ async fn commande_supprimer_groupe<M>(middleware: &M, m: MessageValide, gestionn
 
 async fn commande_recuperer_groupe<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager, session: &mut ClientSession)
                                       -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
-where M: GenerateurMessages + MongoDao + ValidateurX509
+where M: GenerateurMessages + MongoDaoTyped + ValidateurX509
 {
     debug!("commande_recuperer_groupe Consommer commande : {:?}", m.type_message);
     let commande: TransactionSupprimerGroupe = deser_message_buffer!(m.message);
@@ -544,7 +544,7 @@ where M: GenerateurMessages + MongoDao + ValidateurX509
     // Verifier que le document existe et n'est pas supprime.
     let collection = middleware.get_collection_typed::<DocGroupeUsager>(NOM_COLLECTION_GROUPES_USAGERS)?;
     let filtre = doc!{"user_id": &user_id, "groupe_id": &commande.groupe_id};
-    if let Some(groupe_existant) = collection.find_one(filtre, None).await? {
+    if let Some(groupe_existant) = collection.find_one(filtre).await? {
         if Some(true) != groupe_existant.supprime {
             // Groupe deja recupere
             error!("commande_supprimer_groupe Erreur document deja recupere");

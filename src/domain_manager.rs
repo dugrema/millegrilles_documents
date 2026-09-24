@@ -11,7 +11,7 @@ use millegrilles_common_rust::generateur_messages::GenerateurMessages;
 use millegrilles_common_rust::messages_generiques::MessageCedule;
 use millegrilles_common_rust::middleware::{Middleware, MiddlewareMessages};
 use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::MessageMilleGrillesBufferDefault;
-use millegrilles_common_rust::mongo_dao::{ChampIndex, IndexOptions, MongoDao};
+use millegrilles_common_rust::mongo_dao::{ChampIndex, IndexOptions, MongoDao, MongoDaoTyped};
 use millegrilles_common_rust::mongodb::ClientSession;
 use millegrilles_common_rust::rabbitmq_dao::{ConfigQueue, ConfigRoutingExchange, QueueType};
 use millegrilles_common_rust::recepteur_messages::MessageValide;
@@ -97,7 +97,7 @@ impl AiguillageTransactions for DocumentsDomainManager {
     async fn aiguillage_transaction<M>(&self, middleware: &M, transaction: TransactionValide, session: &mut ClientSession)
         -> Result<Option<MessageMilleGrillesBufferDefault>, CommonError>
     where
-        M: ValidateurX509 + GenerateurMessages + MongoDao
+        M: ValidateurX509 + GenerateurMessages + MongoDaoTyped
     {
         aiguillage_transaction(self, middleware, transaction, session).await
     }
