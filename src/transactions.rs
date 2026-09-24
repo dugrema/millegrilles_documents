@@ -40,36 +40,6 @@ pub async fn aiguillage_transaction<M>(gestionnaire: &DocumentsDomainManager, mi
     }
 }
 
-// pub async fn consommer_transaction<M>(middleware: &M, m: MessageValide, gestionnaire: &DocumentsDomainManager)
-//     -> Result<Option<MessageMilleGrillesBufferDefault>, Error>
-// where
-//     M: ValidateurX509 + GenerateurMessages + MongoDao
-// {
-//     debug!("transactions.consommer_transaction Consommer transaction : {:?}", &m.type_message);
-//
-//     let (_, action) = get_domaine_action!(m.type_message);
-//
-//     // Autorisation
-//     match action.as_str() {
-//         // 4.secure - doivent etre validees par une commande
-//         TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER |
-//         TRANSACTION_SAUVEGARDER_GROUPE_USAGER |
-//         TRANSACTION_SAUVEGARDER_DOCUMENT |
-//         TRANSACTION_SUPPRIMER_DOCUMENT |
-//         TRANSACTION_RECUPERER_DOCUMENT |
-//         TRANSACTION_SUPPRIMER_GROUPE |
-//         TRANSACTION_RECUPERER_GROUPE => {
-//             match m.certificat.verifier_exchanges(vec![Securite::L4Secure])? {
-//                 true => Ok(()),
-//                 false => Err(format!("transactions.consommer_transaction: Message autorisation invalide (pas 4.secure)"))
-//             }?;
-//         },
-//         _ => Err(format!("transactions.consommer_transaction: Mauvais type d'action pour une transaction : {}", action))?,
-//     }
-//
-//     Ok(sauvegarder_traiter_transaction_v2(middleware, m, gestionnaire).await?)
-// }
-
 #[derive(Serialize)]
 struct ReponseTransactionSauvegarderCategorie {
     ok: bool,
