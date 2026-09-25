@@ -9,6 +9,7 @@ use millegrilles_common_rust::generateur_messages::RoutageMessageAction;
 use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{MessageMilleGrillesOwned, MessageValidable};
 use millegrilles_common_rust::millegrilles_cryptographie::x509::EnveloppeCertificat;
 use millegrilles_common_rust::mongo_dao::MongoDaoTyped;
+use millegrilles_common_rust::mongodb::options::DeleteOneModel;
 use millegrilles_common_rust::tracing::{debug, error, event, info, warn};
 use millegrilles_common_rust::v3::{BackupService, MessagingService, PkiService, PresenceService};
 use millegrilles_common_rust::v3::models::{ErrorMessage, VerifiedResponseMessage};
@@ -300,6 +301,18 @@ pub async fn save_document<M>(
     outbound.respond(delivery_info, response).await
 }
 
+#[derive(Serialize)]
+struct EvenementDocumentSupprime {
+    doc_id: String,
+    supprime: bool,
+}
+
+#[derive(Serialize)]
+struct ReponseTransactionSauvegarderDocument {
+    ok: bool,
+    doc_id: String,
+}
+
 pub async fn delete_document<M>(
     mongo: &M,
     outbound: &MessageOutboundFacade,
@@ -307,13 +320,48 @@ pub async fn delete_document<M>(
     wrapper: MessageValidated,
 ) -> Result<(), CommonError> where M: MongoDaoTyped
 {
+    if ! is_user_role(&wrapper.certificate)? {
+        return outbound.respond(wrapper.delivery_info, ErrorMessage::err_code(401, "Not authorized")).await;
+    }
     let user_id = match wrapper.get_certificate_user_id() {
         Some(user_id) => user_id,
         None => return outbound.respond(wrapper.delivery_info, ErrorMessage::err("User_id missing from certificate")).await
     };
     // Deserialize, this validates the structure
     let transaction_value: TransactionSupprimerDocument = wrapper.message.deserialize()?;
-    todo!()
+    let collection = mongo.get_collection_typed::<ResponseDocument>(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
+    let filtre = doc!{"user_id": &user_id, "doc_id": &transaction_value.doc_id};
+
+    let doc_id = transaction_value.doc_id.clone();
+    let groupe_id = if let Some(doc_existant) = collection.find_one(filtre).await? {
+        if Some(true) == doc_existant.supprime {
+            // Document deja supprime
+            error!("commande_supprimer_document Erreur document deja supprime");
+            return outbound.respond(wrapper.delivery_info, ErrorMessage::err("Document alreadh deleted")).await
+        }
+        doc_existant.groupe_id
+    } else {
+        error!("commande_supprimer_document Erreur document inconnu");
+        return outbound.respond(wrapper.delivery_info, ErrorMessage::err_code(404, "Unknown document")).await
+    };
+
+    // Run transaction updates
+    let delivery_info = wrapper.delivery_info.clone();
+    transaction.process_transaction(wrapper.into(), None).await?;
+
+    // Emettre evenement maj
+    let event = EvenementDocumentSupprime { doc_id: doc_id.clone(), supprime: true };
+
+    // Check if we set the doc_id from message_id on new document.
+    let partition = format!("{}_{}", user_id, groupe_id);
+    let routing = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_UPDATE_GROUPDOCUMENT, vec![Securite::L2Prive])
+        .partition(partition)
+        .build();
+    outbound.emit_event(routing, event).await?;
+
+    // Respond
+    let reponse = ReponseTransactionSauvegarderDocument { ok: true, doc_id };
+    outbound.respond(delivery_info, reponse).await
 }
 
 pub async fn restore_document<M>(
@@ -323,13 +371,48 @@ pub async fn restore_document<M>(
     wrapper: MessageValidated,
 ) -> Result<(), CommonError> where M: MongoDaoTyped
 {
+    if ! is_user_role(&wrapper.certificate)? {
+        return outbound.respond(wrapper.delivery_info, ErrorMessage::err_code(401, "Not authorized")).await;
+    }
     let user_id = match wrapper.get_certificate_user_id() {
         Some(user_id) => user_id,
         None => return outbound.respond(wrapper.delivery_info, ErrorMessage::err("User_id missing from certificate")).await
     };
     // Deserialize, this validates the structure
     let transaction_value: TransactionSupprimerDocument = wrapper.message.deserialize()?;
-    todo!()
+    let collection = mongo.get_collection_typed::<ResponseDocument>(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
+    let filtre = doc!{"user_id": &user_id, "doc_id": &transaction_value.doc_id};
+
+    let doc_id = transaction_value.doc_id.clone();
+    let groupe_id = if let Some(doc_existant) = collection.find_one(filtre).await? {
+        if Some(true) != doc_existant.supprime {
+            // Document not deleted
+            error!("commande_supprimer_document Error document not deleted");
+            return outbound.respond(wrapper.delivery_info, ErrorMessage::err_code(1, "Document not deleted")).await
+        }
+        doc_existant.groupe_id
+    } else {
+        error!("commande_supprimer_document Erreur document inconnu");
+        return outbound.respond(wrapper.delivery_info, ErrorMessage::err_code(404, "Unknown document")).await
+    };
+
+    // Run transaction updates
+    let delivery_info = wrapper.delivery_info.clone();
+    transaction.process_transaction(wrapper.into(), None).await?;
+
+    // Emettre evenement maj
+    let event = EvenementDocumentSupprime { doc_id: doc_id.clone(), supprime: false };
+
+    // Check if we set the doc_id from message_id on new document.
+    let partition = format!("{}_{}", user_id, groupe_id);
+    let routing = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_UPDATE_GROUPDOCUMENT, vec![Securite::L2Prive])
+        .partition(partition)
+        .build();
+    outbound.emit_event(routing, event).await?;
+
+    // Respond
+    let reponse = ReponseTransactionSauvegarderDocument { ok: true, doc_id };
+    outbound.respond(delivery_info, reponse).await
 }
 
 pub async fn delete_user_group<M>(
@@ -339,6 +422,9 @@ pub async fn delete_user_group<M>(
     wrapper: MessageValidated,
 ) -> Result<(), CommonError> where M: MongoDaoTyped
 {
+    if ! is_user_role(&wrapper.certificate)? {
+        return outbound.respond(wrapper.delivery_info, ErrorMessage::err_code(401, "Not authorized")).await;
+    }
     let user_id = match wrapper.get_certificate_user_id() {
         Some(user_id) => user_id,
         None => return outbound.respond(wrapper.delivery_info, ErrorMessage::err("User_id missing from certificate")).await
@@ -355,6 +441,9 @@ pub async fn restore_user_group<M>(
     wrapper: MessageValidated,
 ) -> Result<(), CommonError> where M: MongoDaoTyped
 {
+    if ! is_user_role(&wrapper.certificate)? {
+        return outbound.respond(wrapper.delivery_info, ErrorMessage::err_code(401, "Not authorized")).await;
+    }
     let user_id = match wrapper.get_certificate_user_id() {
         Some(user_id) => user_id,
         None => return outbound.respond(wrapper.delivery_info, ErrorMessage::err("User_id missing from certificate")).await

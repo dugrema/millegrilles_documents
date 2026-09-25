@@ -8,13 +8,14 @@ use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::error::Error as CommonError;
 use millegrilles_common_rust::mongo_dao::MongoDao;
 use millegrilles_common_rust::mongodb::ClientSession;
-use millegrilles_common_rust::mongodb::options::{UpdateOneModel, WriteModel};
+use millegrilles_common_rust::mongodb::options::{DeleteOneModel, UpdateOneModel, WriteModel};
 use millegrilles_common_rust::serde_json::Value;
 use millegrilles_common_rust::tracing::{info, warn};
 use millegrilles_common_rust::v3::impls::transaction_service::TransactionServiceImpl;
 use millegrilles_common_rust::v3::models::{TransactionOperationAggregator, TransactionWrapper};
 use millegrilles_common_rust::v3::{ConfigService, FormatService, TransactionRouter, TransactionService};
 use std::sync::Arc;
+use crate::constantes::*;
 
 pub const TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER: &str = "sauvegarderCategorieUsager";
 pub const TRANSACTION_SAUVEGARDER_GROUPE_USAGER: &str = "sauvegarderGroupeUsager";
@@ -92,8 +93,6 @@ async fn save_user_category(
     info!("Maj appareil: {:?}", wrapper.message.contenu);
     let transaction_value: TransactionSauvegarderCategorieUsager = wrapper.message.deserialize()?;
 
-    let mut aggregator = TransactionOperationAggregator::new();
-
     let user_id = match wrapper.get_certificate_user_id() {
         Some(user_id) => user_id,
         None => {
@@ -145,7 +144,6 @@ async fn save_user_category(
             .update(ops.clone())
             .build()
     );
-    aggregator.ordered = Some(vec![update_model_categories]);   // Must be done in order to keep most recent version up to date
 
     // Insert the version for history
     let collection_versions = mongo.get_collection(NOM_COLLECTION_CATEGORIES_USAGERS_VERSION)?;
@@ -162,8 +160,10 @@ async fn save_user_category(
             .update(ops)
             .build()
     );
-    aggregator.unordered = Some(vec![update_model_versions]);   // This really is just an insert
 
+    let mut aggregator = TransactionOperationAggregator::new();
+    aggregator.ordered = Some(vec![update_model_categories]);   // Must be done in order to keep most recent version up to date
+    aggregator.unordered = Some(vec![update_model_versions]);   // This really is just an insert
     Ok(aggregator)
 }
 
@@ -174,8 +174,6 @@ async fn save_user_group(
     // Deserialize, this validates the structure
     info!("Maj appareil: {:?}", wrapper.message.contenu);
     let transaction_value: TransactionSauvegarderGroupeUsager = wrapper.message.deserialize()?;
-
-    let mut aggregator = TransactionOperationAggregator::new();
 
     let user_id = match wrapper.get_certificate_user_id() {
         Some(user_id) => user_id,
@@ -222,8 +220,9 @@ async fn save_user_group(
             .update(ops.clone())
             .build()
     );
-    aggregator.ordered = Some(vec![update_model_group]);   // Must be done in order to keep most recent version up to date
 
+    let mut aggregator = TransactionOperationAggregator::new();
+    aggregator.ordered = Some(vec![update_model_group]);   // Must be done in order to keep most recent version up to date
     Ok(aggregator)
 }
 
@@ -234,8 +233,6 @@ async fn save_document(
     // Deserialize, this validates the structure
     info!("Maj appareil: {:?}", wrapper.message.contenu);
     let transaction_value: TransactionSauvegarderDocument = wrapper.message.deserialize()?;
-
-    let mut aggregator = TransactionOperationAggregator::new();
 
     let user_id = match wrapper.get_certificate_user_id() {
         Some(user_id) => user_id,
@@ -283,8 +280,9 @@ async fn save_document(
             .update(ops.clone())
             .build()
     );
-    aggregator.ordered = Some(vec![update_model_doc]);   // Must be done in order to keep most recent version up to date
 
+    let mut aggregator = TransactionOperationAggregator::new();
+    aggregator.ordered = Some(vec![update_model_doc]);   // Must be done in order to keep most recent version up to date
     Ok(aggregator)
 }
 
@@ -296,19 +294,34 @@ async fn delete_document(
     info!("Maj appareil: {:?}", wrapper.message.contenu);
     let transaction_value: TransactionSupprimerDocument = wrapper.message.deserialize()?;
 
-    let mut aggregator = TransactionOperationAggregator::new();
-
     let user_id = match wrapper.get_certificate_user_id() {
         Some(user_id) => user_id,
         None => {
-            warn!("Old update_device_transaction with certificate missing user_id, skipping");
-            return Ok(aggregator);
-            // return Err(CommonError::Str("Missing user_id from certificate"))
+            warn!("Old delete_document with certificate missing user_id");
+            return Err(CommonError::Str("Missing user_id from certificate"))
         }
     };
 
-    todo!();
+    let filtre = doc! {
+        "doc_id": &transaction_value.doc_id,
+        "user_id": &user_id,
+    };
+    let ops = doc! {
+        "$set": {"supprime": true},
+        "$currentDate": {CHAMP_MODIFICATION: true, NOM_CHAMP_SUPPRIME_DATE: true},
+    };
+    let collection = mongo.get_collection(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
+    let update_model_doc = WriteModel::UpdateOne(
+        UpdateOneModel::builder()
+            .upsert(true)
+            .namespace(collection.namespace())
+            .filter(filtre)
+            .update(ops.clone())
+            .build()
+    );
 
+    let mut aggregator = TransactionOperationAggregator::new();
+    aggregator.ordered = Some(vec![update_model_doc]);
     Ok(aggregator)
 }
 
@@ -320,19 +333,35 @@ async fn restore_document(
     info!("Maj appareil: {:?}", wrapper.message.contenu);
     let transaction_value: TransactionSupprimerDocument = wrapper.message.deserialize()?;
 
-    let mut aggregator = TransactionOperationAggregator::new();
-
     let user_id = match wrapper.get_certificate_user_id() {
         Some(user_id) => user_id,
         None => {
-            warn!("Old update_device_transaction with certificate missing user_id, skipping");
-            return Ok(aggregator);
-            // return Err(CommonError::Str("Missing user_id from certificate"))
+            warn!("Old restore_document with certificate missing user_id");
+            return Err(CommonError::Str("Missing user_id from certificate"))
         }
     };
 
-    todo!();
+    let filtre = doc! {
+        "doc_id": &transaction_value.doc_id,
+        "user_id": &user_id,
+    };
+    let ops = doc! {
+        "$set": {"supprime": false},
+        "$unset": {NOM_CHAMP_SUPPRIME_DATE: true},
+        "$currentDate": {CHAMP_MODIFICATION: true},
+    };
+    let collection = mongo.get_collection(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
+    let update_model_doc = WriteModel::UpdateOne(
+        UpdateOneModel::builder()
+            .upsert(true)
+            .namespace(collection.namespace())
+            .filter(filtre)
+            .update(ops.clone())
+            .build()
+    );
 
+    let mut aggregator = TransactionOperationAggregator::new();
+    aggregator.ordered = Some(vec![update_model_doc]);
     Ok(aggregator)
 }
 
