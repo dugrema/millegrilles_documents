@@ -107,6 +107,12 @@ pub struct DocDocument {
     pub header: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DocIdentity {
+    pub doc_id: String,
+    pub supprime: Option<bool>,
+}
+
 #[derive(Deserialize)]
 pub struct TransactionSupprimerDocument {
     pub doc_id: String,

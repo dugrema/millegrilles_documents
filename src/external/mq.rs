@@ -3,10 +3,9 @@ use millegrilles_common_rust::constantes::{COMMANDE_DECLENCHER_BACKUP, COMMANDE_
 use millegrilles_common_rust::error::Error as CommonError;
 use millegrilles_common_rust::rabbitmq_dao::{ConfigQueue, ConfigRoutingExchange};
 use millegrilles_common_rust::v3::impls::messaging_service::MessagingServiceImpl;
+use crate::flow::requests::*;
 
 pub const QUEUE_TTL_DEFAULT: u32 = 30_000;
-pub const QUEUE_REPORT_TTL: u32 = 180_000;
-pub const QUEUE_DEVICE_TTL: u32 = 20_000;
 pub const QUEUE_TICKER: &str = "job_ticker";
 pub const QUEUE_REQUESTS: &str = "requests";
 pub const QUEUE_COMMANDS: &str = "commands";
@@ -30,7 +29,11 @@ pub fn init_queues(mq: &MessagingServiceImpl) -> Result<(), CommonError> {
         ConfigQueue {
             nom_queue: format!("{}/{}", DOMAINE_NOM, QUEUE_REQUESTS),
             routing_keys: vec![
-                // ConfigRoutingExchange { routing_key: format!("requete.{}.{}", DOMAINE_NOM, REQUETE_GET_APPAREILS_USAGER), exchange: Securite::L2Prive },
+                ConfigRoutingExchange { routing_key: format!("requete.{}.{}", DOMAINE_NOM, REQUEST_USER_CATEGORIES), exchange: Securite::L2Prive },
+                ConfigRoutingExchange { routing_key: format!("requete.{}.{}", DOMAINE_NOM, REQUEST_USER_GROUPS), exchange: Securite::L2Prive },
+                ConfigRoutingExchange { routing_key: format!("requete.{}.{}", DOMAINE_NOM, REQUEST_GROUP_KEYS), exchange: Securite::L2Prive },
+                ConfigRoutingExchange { routing_key: format!("requete.{}.{}", DOMAINE_NOM, REQUEST_GROUP_DOCUMENTLIST), exchange: Securite::L2Prive },
+                ConfigRoutingExchange { routing_key: format!("requete.{}.{}", DOMAINE_NOM, REQUEST_DOCUMENT_CONTENT), exchange: Securite::L2Prive },
             ],
             ttl: Some(QUEUE_TTL_DEFAULT),
             durable: true,

@@ -21,10 +21,10 @@ pub const TRANSACTION_RECUPERER_DOCUMENT: &str = "recupererDocument";
 pub const TRANSACTION_SUPPRIMER_GROUPE: &str = "supprimerGroupe";
 pub const TRANSACTION_RECUPERER_GROUPE: &str = "recupererGroupe";
 
-pub const REQUETE_CATEGORIES_USAGER: &str = "getCategoriesUsager";
-pub const REQUETE_GROUPES_USAGER: &str = "getGroupesUsager";
-pub const REQUETE_GROUPES_CLES: &str = "getClesGroupes";
-pub const REQUETE_DOCUMENTS_GROUPE: &str = "getDocumentsGroupe";
+// pub const REQUETE_CATEGORIES_USAGER: &str = "getCategoriesUsager";
+// pub const REQUETE_GROUPES_USAGER: &str = "getGroupesUsager";
+// pub const REQUETE_GROUPES_CLES: &str = "getClesGroupes";
+// pub const REQUETE_DOCUMENTS_GROUPE: &str = "getDocumentsGroupe";
 
 pub const EVENEMENT_UPDATE_CATGGROUP: &str = "updateCatGroup";
 pub const EVENEMENT_UPDATE_GROUPDOCUMENT: &str = "updateGroupDocument";
