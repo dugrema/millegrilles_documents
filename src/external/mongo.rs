@@ -5,6 +5,10 @@ use millegrilles_common_rust::mongo_dao::{ChampIndex, IndexOptions, MongoDao};
 
 pub const COLLECTION_NAME_REDOLOG: &str = "Documents/redolog";
 pub const COLLECTION_NAME_TRACKING: &str = "Documents/tracking";
+pub const NOM_COLLECTION_CATEGORIES_USAGERS: &str = "Documents/categoriesUsagers";
+pub const NOM_COLLECTION_CATEGORIES_USAGERS_VERSION: &str = "Documents/categoriesUsagersVersion";
+pub const NOM_COLLECTION_GROUPES_USAGERS: &str = "Documents/groupesUsagers";
+pub const NOM_COLLECTION_DOCUMENTS_USAGERS: &str = "Documents/documentsUsagers";
 
 pub const INDEX_REDO_LOG_ID: &str = "redo_log_id";
 
@@ -59,38 +63,58 @@ pub async fn create_index_mongodb(db: &dyn MongoDao, config: &dyn ConfigMessages
 
     // TODO Index
 
-    //  // Index categorie_id / user_id pour categories_usager
-    //     let options_unique_categories_usager = IndexOptions {
-    //         nom_index: Some(String::from("categorie_id_usager")),
-    //         unique: true
-    //     };
-    //     let champs_index_categories_usager = vec!(
-    //         ChampIndex {nom_champ: String::from("categorie_id"), direction: 1},
-    //         ChampIndex {nom_champ: String::from("user_id"), direction: 1},
-    //     );
-    //     middleware.create_index(
-    //         middleware,
-    //         NOM_COLLECTION_CATEGORIES_USAGERS,
-    //         champs_index_categories_usager,
-    //         Some(options_unique_categories_usager)
-    //     ).await?;
-    //
-    //     // Index categorie_id / user_id pour categories_usager_versions
-    //     let options_unique_categories_usager_versions = IndexOptions {
-    //         nom_index: Some(String::from("categorie_id_usager_version")),
-    //         unique: true
-    //     };
-    //     let champs_index_categories_usager_versions = vec!(
-    //         ChampIndex {nom_champ: String::from("categorie_id"), direction: 1},
-    //         ChampIndex {nom_champ: String::from("user_id"), direction: 1},
-    //         ChampIndex {nom_champ: String::from("version"), direction: 1},
-    //     );
-    //     middleware.create_index(
-    //         middleware,
-    //         NOM_COLLECTION_CATEGORIES_USAGERS_VERSION,
-    //         champs_index_categories_usager_versions,
-    //         Some(options_unique_categories_usager_versions)
-    //     ).await?;
+    db.create_index(
+        config,
+        NOM_COLLECTION_CATEGORIES_USAGERS,
+        vec!(
+            ChampIndex {nom_champ: String::from("categorie_id"), direction: 1},
+            ChampIndex {nom_champ: String::from("user_id"), direction: 1},
+        ),
+        Some(IndexOptions {
+            nom_index: Some(String::from("categorie_id_usager")),
+            unique: true,
+        })
+    ).await?;
+
+    db.create_index(
+        config,
+        NOM_COLLECTION_CATEGORIES_USAGERS_VERSION,
+        vec!(
+            ChampIndex {nom_champ: String::from("categorie_id"), direction: 1},
+            ChampIndex {nom_champ: String::from("user_id"), direction: 1},
+            ChampIndex {nom_champ: String::from("version"), direction: 1},
+        ),
+        Some(IndexOptions {
+            nom_index: Some(String::from("categorie_id_usager_version")),
+            unique: true,
+        })
+    ).await?;
+
+    db.create_index(
+        config,
+        NOM_COLLECTION_DOCUMENTS_USAGERS,
+        vec!(
+            ChampIndex {nom_champ: String::from("doc_id"), direction: 1},
+            ChampIndex {nom_champ: String::from("user_id"), direction: 1},
+        ),
+        Some(IndexOptions {
+            nom_index: Some(String::from("doc_user")),
+            unique: true,
+        })
+    ).await?;
+
+    db.create_index(
+        config,
+        NOM_COLLECTION_GROUPES_USAGERS,
+        vec!(
+            ChampIndex {nom_champ: String::from("groupe_id"), direction: 1},
+            ChampIndex {nom_champ: String::from("user_id"), direction: 1},
+        ),
+        Some(IndexOptions {
+            nom_index: Some(String::from("group_user")),
+            unique: true,
+        })
+    ).await?;
 
     Ok(())
 }

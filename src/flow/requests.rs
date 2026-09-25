@@ -21,7 +21,8 @@ use millegrilles_common_rust::mongodb::options::Hint;
 use millegrilles_common_rust::serde_json;
 use millegrilles_common_rust::v3::{FormatService, MessagingService};
 use crate::common::{DocCategorieUsager, ResponseDocument, DocGroupeUsager, DocIdentity};
-use crate::constantes::{DOMAINE_NOM, NOM_COLLECTION_CATEGORIES_USAGERS, NOM_COLLECTION_DOCUMENTS_USAGERS, NOM_COLLECTION_GROUPES_USAGERS};
+use crate::constantes::{DOMAINE_NOM};
+use crate::external::mongo::{NOM_COLLECTION_CATEGORIES_USAGERS, NOM_COLLECTION_DOCUMENTS_USAGERS, NOM_COLLECTION_GROUPES_USAGERS};
 
 pub const REQUEST_USER_CATEGORIES: &str = "getCategoriesUsager";
 pub const REQUEST_USER_GROUPS: &str = "getGroupesUsager";

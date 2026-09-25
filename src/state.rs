@@ -19,7 +19,9 @@ use millegrilles_common_rust::v3::impls::backup_service::DomainBackupServiceImpl
 use millegrilles_common_rust::v3::impls::filehost_service::FilehostServiceImpl;
 use crate::Cli;
 use crate::constantes::*;
+use crate::external::mongo::*;
 use crate::flow::app_service::ApplicationService;
+use crate::flow::restore::restore_from_backup;
 use crate::flow::transactions::DocumentsTransactionService;
 
 /// Composition object with services from common library
@@ -64,7 +66,7 @@ impl AppContext {
 
         let filehost = Arc::new(FilehostServiceImpl::new(config.clone(), format.clone(), outbound.clone()));
 
-        // List data tables (exclusing redolog and tracking). They get truncated on restore (when not resuming).
+        // List data tables (excluding redolog and tracking). They get truncated on restore (when not resuming).
         let data_tables = vec![
             NOM_COLLECTION_CATEGORIES_USAGERS.to_string(),
             NOM_COLLECTION_CATEGORIES_USAGERS_VERSION.to_string(),
@@ -85,6 +87,8 @@ impl AppContext {
         let app_service = Arc::new(ApplicationService::new(
             security.clone(),
             security.clone(),
+            messaging.clone(),
+            format.clone(),
             outbound.clone(),
             transaction.clone(),
             mongo.clone(),
@@ -171,10 +175,9 @@ async fn start_threads(
         };
         info!("Not starting consumer threads - restoring from backup");
         let shutdown_token_clone = shutdown_token.clone();
-        todo!()
-        // join_set.spawn(async move {
-        //     restore_from_backup(app_service, &master_key, shutdown_token_clone).await
-        // });
+        join_set.spawn(async move {
+            restore_from_backup(app_service, &master_key, shutdown_token_clone).await
+        });
     }
 
     Ok(())

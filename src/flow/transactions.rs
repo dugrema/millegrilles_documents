@@ -16,7 +16,14 @@ use millegrilles_common_rust::v3::models::{BatchInsertions, TransactionOperation
 use millegrilles_common_rust::v3::{ConfigService, FormatService, TransactionRouter, TransactionService};
 use std::sync::Arc;
 
-// pub const TRANSACTION_LECTURE: &str = "lecture";
+pub const TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER: &str = "sauvegarderCategorieUsager";
+pub const TRANSACTION_SAUVEGARDER_GROUPE_USAGER: &str = "sauvegarderGroupeUsager";
+pub const TRANSACTION_SAUVEGARDER_DOCUMENT: &str = "sauvegarderDocument";
+pub const TRANSACTION_SUPPRIMER_DOCUMENT: &str = "supprimerDocument";
+pub const TRANSACTION_RECUPERER_DOCUMENT: &str = "recupererDocument";
+pub const TRANSACTION_SUPPRIMER_GROUPE: &str = "supprimerGroupe";
+pub const TRANSACTION_RECUPERER_GROUPE: &str = "recupererGroupe";
+
 
 pub struct DocumentsTransactionService {
     pub transaction: Arc<dyn TransactionService>,
@@ -64,18 +71,44 @@ impl TransactionRouter for SenseursPassifsTransactionRouter {
         wrapper: TransactionWrapper
     ) -> Result<TransactionOperationAggregator, CommonError> {
         match action.as_str() {
-            // Legacy
             // TRANSACTION_LECTURE => lectures_transaction_legacy(self.mongo.as_ref(), wrapper).await,
+            TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER => save_user_category(self.mongo.as_ref(), wrapper).await,
+            TRANSACTION_SAUVEGARDER_GROUPE_USAGER => save_user_group(self.mongo.as_ref(), wrapper).await,
+            TRANSACTION_SAUVEGARDER_DOCUMENT => save_document(self.mongo.as_ref(), wrapper).await,
+            TRANSACTION_SUPPRIMER_DOCUMENT => delete_document(self.mongo.as_ref(), wrapper).await,
+            TRANSACTION_RECUPERER_DOCUMENT => restore_document(self.mongo.as_ref(), wrapper).await,
+            TRANSACTION_SUPPRIMER_GROUPE => delete_user_group(self.mongo.as_ref(), wrapper).await,
+            TRANSACTION_RECUPERER_GROUPE => restore_user_group(self.mongo.as_ref(), wrapper).await,
+
             _ => Err(CommonError::Str("Unknown transaction action"))
         }
     }
 }
 
-fn ignore_transaction(wrapper: TransactionWrapper) -> Result<TransactionOperationAggregator, CommonError> {
-    let action = wrapper.get_routing_action();
-    info!("Ignoring transaction action {:?}: id: {}, content: {}", action, wrapper.message.id, wrapper.message.contenu);
-    Ok(TransactionOperationAggregator::new())
+async fn save_user_category(
+    mongo: &dyn MongoDao,
+    wrapper: TransactionWrapper,
+) -> Result<TransactionOperationAggregator, CommonError> {
+    // Deserialize, this validates the structure
+    info!("Maj appareil: {:?}", wrapper.message.contenu);
+    let transaction_value: TransactionSauvegarderCategorieUsager = wrapper.message.deserialize()?;
+
+    let mut aggregator = TransactionOperationAggregator::new();
+
+    let user_id = match wrapper.get_certificate_user_id() {
+        Some(user_id) => user_id,
+        None => {
+            warn!("Old update_device_transaction with certificate missing user_id, skipping");
+            return Ok(aggregator);
+            // return Err(CommonError::Str("Missing user_id from certificate"))
+        }
+    };
+
+    todo!();
+
+    Ok(aggregator)
 }
+
 
 // async fn update_device_transaction(
 //     mongo: &dyn MongoDao,
@@ -168,3 +201,147 @@ fn ignore_transaction(wrapper: TransactionWrapper) -> Result<TransactionOperatio
 //
 //     Ok(aggregator)
 // }
+
+async fn save_user_group(
+    mongo: &dyn MongoDao,
+    wrapper: TransactionWrapper,
+) -> Result<TransactionOperationAggregator, CommonError> {
+    // Deserialize, this validates the structure
+    info!("Maj appareil: {:?}", wrapper.message.contenu);
+    let transaction_value: TransactionSauvegarderGroupeUsager = wrapper.message.deserialize()?;
+
+    let mut aggregator = TransactionOperationAggregator::new();
+
+    let user_id = match wrapper.get_certificate_user_id() {
+        Some(user_id) => user_id,
+        None => {
+            warn!("Old update_device_transaction with certificate missing user_id, skipping");
+            return Ok(aggregator);
+            // return Err(CommonError::Str("Missing user_id from certificate"))
+        }
+    };
+
+    todo!();
+
+    Ok(aggregator)
+}
+
+async fn save_document(
+    mongo: &dyn MongoDao,
+    wrapper: TransactionWrapper,
+) -> Result<TransactionOperationAggregator, CommonError> {
+    // Deserialize, this validates the structure
+    info!("Maj appareil: {:?}", wrapper.message.contenu);
+    let transaction_value: TransactionSauvegarderDocument = wrapper.message.deserialize()?;
+
+    let mut aggregator = TransactionOperationAggregator::new();
+
+    let user_id = match wrapper.get_certificate_user_id() {
+        Some(user_id) => user_id,
+        None => {
+            warn!("Old update_device_transaction with certificate missing user_id, skipping");
+            return Ok(aggregator);
+            // return Err(CommonError::Str("Missing user_id from certificate"))
+        }
+    };
+
+    todo!();
+
+    Ok(aggregator)
+}
+
+async fn delete_document(
+    mongo: &dyn MongoDao,
+    wrapper: TransactionWrapper,
+) -> Result<TransactionOperationAggregator, CommonError> {
+    // Deserialize, this validates the structure
+    info!("Maj appareil: {:?}", wrapper.message.contenu);
+    let transaction_value: TransactionSupprimerDocument = wrapper.message.deserialize()?;
+
+    let mut aggregator = TransactionOperationAggregator::new();
+
+    let user_id = match wrapper.get_certificate_user_id() {
+        Some(user_id) => user_id,
+        None => {
+            warn!("Old update_device_transaction with certificate missing user_id, skipping");
+            return Ok(aggregator);
+            // return Err(CommonError::Str("Missing user_id from certificate"))
+        }
+    };
+
+    todo!();
+
+    Ok(aggregator)
+}
+
+async fn restore_document(
+    mongo: &dyn MongoDao,
+    wrapper: TransactionWrapper,
+) -> Result<TransactionOperationAggregator, CommonError> {
+    // Deserialize, this validates the structure
+    info!("Maj appareil: {:?}", wrapper.message.contenu);
+    let transaction_value: TransactionSupprimerDocument = wrapper.message.deserialize()?;
+
+    let mut aggregator = TransactionOperationAggregator::new();
+
+    let user_id = match wrapper.get_certificate_user_id() {
+        Some(user_id) => user_id,
+        None => {
+            warn!("Old update_device_transaction with certificate missing user_id, skipping");
+            return Ok(aggregator);
+            // return Err(CommonError::Str("Missing user_id from certificate"))
+        }
+    };
+
+    todo!();
+
+    Ok(aggregator)
+}
+
+async fn delete_user_group(
+    mongo: &dyn MongoDao,
+    wrapper: TransactionWrapper,
+) -> Result<TransactionOperationAggregator, CommonError> {
+    // Deserialize, this validates the structure
+    info!("Maj appareil: {:?}", wrapper.message.contenu);
+    let transaction_value: TransactionSupprimerGroupe = wrapper.message.deserialize()?;
+
+    let mut aggregator = TransactionOperationAggregator::new();
+
+    let user_id = match wrapper.get_certificate_user_id() {
+        Some(user_id) => user_id,
+        None => {
+            warn!("Old update_device_transaction with certificate missing user_id, skipping");
+            return Ok(aggregator);
+            // return Err(CommonError::Str("Missing user_id from certificate"))
+        }
+    };
+
+    todo!();
+
+    Ok(aggregator)
+}
+
+async fn restore_user_group(
+    mongo: &dyn MongoDao,
+    wrapper: TransactionWrapper,
+) -> Result<TransactionOperationAggregator, CommonError> {
+    // Deserialize, this validates the structure
+    info!("Maj appareil: {:?}", wrapper.message.contenu);
+    let transaction_value: TransactionSupprimerGroupe = wrapper.message.deserialize()?;
+
+    let mut aggregator = TransactionOperationAggregator::new();
+
+    let user_id = match wrapper.get_certificate_user_id() {
+        Some(user_id) => user_id,
+        None => {
+            warn!("Old update_device_transaction with certificate missing user_id, skipping");
+            return Ok(aggregator);
+            // return Err(CommonError::Str("Missing user_id from certificate"))
+        }
+    };
+
+    todo!();
+
+    Ok(aggregator)
+}

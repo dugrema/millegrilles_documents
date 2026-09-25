@@ -1,9 +1,10 @@
 use crate::constantes::DOMAINE_NOM;
-use millegrilles_common_rust::constantes::{COMMANDE_DECLENCHER_BACKUP, COMMANDE_GLOBAL_DECLENCHER_BACKUP, COMMANDE_REGENERER, Securite};
+use crate::flow::requests::*;
+use crate::flow::transactions::*;
+use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::error::Error as CommonError;
 use millegrilles_common_rust::rabbitmq_dao::{ConfigQueue, ConfigRoutingExchange};
 use millegrilles_common_rust::v3::impls::messaging_service::MessagingServiceImpl;
-use crate::flow::requests::*;
 
 pub const QUEUE_TTL_DEFAULT: u32 = 30_000;
 pub const QUEUE_TICKER: &str = "job_ticker";
@@ -44,7 +45,13 @@ pub fn init_queues(mq: &MessagingServiceImpl) -> Result<(), CommonError> {
         ConfigQueue {
             nom_queue: format!("{}/{}", DOMAINE_NOM, QUEUE_COMMANDS),
             routing_keys: vec![
-                // ConfigRoutingExchange { routing_key: format!("commande.{}.{}", DOMAINE_NOM, COMMANDE_INSCRIRE_APPAREIL), exchange: Securite::L2Prive },
+                ConfigRoutingExchange { routing_key: format!("commande.{}.{}", DOMAINE_NOM, TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER), exchange: Securite::L2Prive },
+                ConfigRoutingExchange { routing_key: format!("commande.{}.{}", DOMAINE_NOM, TRANSACTION_SAUVEGARDER_GROUPE_USAGER), exchange: Securite::L2Prive },
+                ConfigRoutingExchange { routing_key: format!("commande.{}.{}", DOMAINE_NOM, TRANSACTION_SAUVEGARDER_DOCUMENT), exchange: Securite::L2Prive },
+                ConfigRoutingExchange { routing_key: format!("commande.{}.{}", DOMAINE_NOM, TRANSACTION_SUPPRIMER_DOCUMENT), exchange: Securite::L2Prive },
+                ConfigRoutingExchange { routing_key: format!("commande.{}.{}", DOMAINE_NOM, TRANSACTION_RECUPERER_DOCUMENT), exchange: Securite::L2Prive },
+                ConfigRoutingExchange { routing_key: format!("commande.{}.{}", DOMAINE_NOM, TRANSACTION_SUPPRIMER_GROUPE), exchange: Securite::L2Prive },
+                ConfigRoutingExchange { routing_key: format!("commande.{}.{}", DOMAINE_NOM, TRANSACTION_RECUPERER_GROUPE), exchange: Securite::L2Prive },
             ],
             ttl: Some(QUEUE_TTL_DEFAULT),
             durable: true,
