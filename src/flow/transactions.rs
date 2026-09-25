@@ -240,13 +240,50 @@ async fn save_document(
     let user_id = match wrapper.get_certificate_user_id() {
         Some(user_id) => user_id,
         None => {
-            warn!("Old update_device_transaction with certificate missing user_id, skipping");
-            return Ok(aggregator);
-            // return Err(CommonError::Str("Missing user_id from certificate"))
+            warn!("Old save_document with certificate missing user_id");
+            return Err(CommonError::Str("Missing user_id from certificate"))
         }
     };
+    let doc_id = match transaction_value.doc_id {
+        Some(doc_id) => doc_id,
+        None => wrapper.message.id.clone()
+    };
+    let format_str: &str = transaction_value.format.into();
 
-    todo!();
+    let ops = doc! {
+        "$set": {
+            "categorie_version": transaction_value.categorie_version,
+            "data_chiffre": transaction_value.data_chiffre,
+            "format": format_str,
+            "header": transaction_value.header,
+            "cle_id": transaction_value.cle_id,
+            "nonce": transaction_value.nonce,
+            "compression": transaction_value.compression,
+        },
+        "$setOnInsert": {
+            "doc_id": &doc_id,
+            "groupe_id": &transaction_value.groupe_id,
+            "user_id": &user_id,
+            CHAMP_CREATION: Utc::now(),
+        },
+        "$currentDate": {CHAMP_MODIFICATION: true},
+    };
+    let filtre = doc! {
+        "doc_id": &doc_id,
+        "user_id": &user_id,
+    };
+
+
+    let collection = mongo.get_collection(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
+    let update_model_doc = WriteModel::UpdateOne(
+        UpdateOneModel::builder()
+            .upsert(true)
+            .namespace(collection.namespace())
+            .filter(filtre)
+            .update(ops.clone())
+            .build()
+    );
+    aggregator.ordered = Some(vec![update_model_doc]);   // Must be done in order to keep most recent version up to date
 
     Ok(aggregator)
 }

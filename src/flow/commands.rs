@@ -14,9 +14,9 @@ use millegrilles_common_rust::v3::{BackupService, MessagingService, PkiService, 
 use millegrilles_common_rust::v3::models::{ErrorMessage, VerifiedResponseMessage};
 use millegrilles_common_rust::serde::Serialize;
 use millegrilles_common_rust::serde_json;
-use crate::common::{DocCategorieUsager, DocGroupeUsager, TransactionSauvegarderCategorieUsager, TransactionSauvegarderDocument, TransactionSauvegarderGroupeUsager, TransactionSupprimerDocument, TransactionSupprimerGroupe};
-use crate::constantes::{DOMAINE_NOM, EVENEMENT_UPDATE_CATGGROUP};
-use crate::external::mongo::{COLLECTION_NAME_REDOLOG, NOM_COLLECTION_CATEGORIES_USAGERS, NOM_COLLECTION_GROUPES_USAGERS};
+use crate::common::{DocCategorieUsager, DocGroupeUsager, ResponseDocument, TransactionSauvegarderCategorieUsager, TransactionSauvegarderDocument, TransactionSauvegarderGroupeUsager, TransactionSupprimerDocument, TransactionSupprimerGroupe};
+use crate::constantes::{DOMAINE_NOM, EVENEMENT_UPDATE_CATGGROUP, EVENEMENT_UPDATE_GROUPDOCUMENT};
+use crate::external::mongo::{COLLECTION_NAME_REDOLOG, NOM_COLLECTION_CATEGORIES_USAGERS, NOM_COLLECTION_DOCUMENTS_USAGERS, NOM_COLLECTION_GROUPES_USAGERS};
 use crate::flow::transactions::*;
 use crate::flow::transactions::DocumentsTransactionService;
 
@@ -234,6 +234,17 @@ pub async fn save_user_group<M>(
     outbound.respond(delivery_info, response).await
 }
 
+#[derive(Serialize)]
+struct EvenementDocumentMaj {
+    document: TransactionSauvegarderDocument,
+}
+
+#[derive(Serialize)]
+struct ResponseTransactionSauvegarderDocument {
+    ok: bool,
+    doc_id: String,
+}
+
 pub async fn save_document<M>(
     mongo: &M,
     outbound: &MessageOutboundFacade,
@@ -241,13 +252,52 @@ pub async fn save_document<M>(
     wrapper: MessageValidated,
 ) -> Result<(), CommonError> where M: MongoDaoTyped
 {
+    if ! is_user_role(&wrapper.certificate)? {
+        return outbound.respond(wrapper.delivery_info, ErrorMessage::err_code(401, "Not authorized")).await;
+    }
     let user_id = match wrapper.get_certificate_user_id() {
         Some(user_id) => user_id,
         None => return outbound.respond(wrapper.delivery_info, ErrorMessage::err("User_id missing from certificate")).await
     };
     // Deserialize, this validates the structure
     let transaction_value: TransactionSauvegarderDocument = wrapper.message.deserialize()?;
-    todo!()
+
+    if let Some(doc_id) = &transaction_value.doc_id {
+        let filtre = doc! { "doc_id": doc_id, "user_id": &user_id };
+        let collection = mongo.get_collection_typed::<ResponseDocument>(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
+        let doc_option = collection.find_one(filtre).await?;
+        if let Some(doc_groupe) = doc_option {
+            if doc_groupe.groupe_id != transaction_value.groupe_id {
+                return outbound.respond(wrapper.delivery_info, ErrorMessage::err("Document group must not be changed")).await
+            }
+        }
+    }
+
+    // Run transaction updates
+    let delivery_info = wrapper.delivery_info.clone();
+    let message_id = wrapper.message.id.clone();
+    transaction.process_transaction(wrapper.into(), None).await?;
+
+    // Emettre evenement maj
+    let mut evenement = EvenementDocumentMaj { document: transaction_value };
+    // Check if we set the doc_id from message_id on new document.
+    let doc_id = match evenement.document.doc_id.as_ref() {
+        Some(doc_id) => doc_id.clone(),
+        None => {
+            evenement.document.doc_id = Some(message_id.clone());
+            message_id
+        }
+    };
+
+    let partition = format!("{}_{}", user_id, evenement.document.groupe_id);
+    let routing = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_UPDATE_GROUPDOCUMENT, vec![Securite::L2Prive])
+        .partition(partition)
+        .build();
+    outbound.emit_event(routing, evenement).await?;
+
+    // Respond
+    let response = ResponseTransactionSauvegarderDocument { ok: true, doc_id };
+    outbound.respond(delivery_info, response).await
 }
 
 pub async fn delete_document<M>(
