@@ -19,7 +19,7 @@ use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{epo
 use millegrilles_common_rust::millegrilles_cryptographie::chiffrage::formatchiffragestr;
 use millegrilles_common_rust::serde_json;
 use millegrilles_common_rust::v3::{FormatService, MessagingService};
-use crate::common::{DocCategorieUsager, DocDocument, DocGroupeUsager, DocIdentity};
+use crate::common::{DocCategorieUsager, ResponseDocument, DocGroupeUsager, DocIdentity};
 use crate::constantes::{DOMAINE_NOM, NOM_COLLECTION_CATEGORIES_USAGERS, NOM_COLLECTION_DOCUMENTS_USAGERS, NOM_COLLECTION_GROUPES_USAGERS};
 
 pub const REQUEST_USER_CATEGORIES: &str = "getCategoriesUsager";
@@ -271,7 +271,7 @@ struct RequestGetGroupDocuments {
 
 #[derive(Serialize)]
 struct ReponseGetDocumentsGroupe {
-    documents: Vec<String>,
+    documents: Vec<DocIdentity>,
     supprimes: Vec<String>,
     done: bool,
 }
@@ -301,7 +301,11 @@ async fn get_group_documents_list<M>(
 
     let mut curseur = collection
         .find(filtre)
-        .projection(doc!{"doc_id": true})
+        .projection(doc!{
+            "doc_id": true,
+            "supprime": true,
+            "_mg-derniere-modification": true,
+        })
         .await?;
 
     while let Some(row) = curseur.next().await {
@@ -310,7 +314,7 @@ async fn get_group_documents_list<M>(
         if Some(true) == doc.supprime {
             liste_supprimes.push(doc.doc_id);
         } else {
-            liste_documents.push(doc.doc_id);
+            liste_documents.push(doc);
         }
     }
 
@@ -333,7 +337,7 @@ struct RequestGetDocumentContent {
 #[derive(Serialize)]
 struct ResponseGetDocumentContent {
     ok: bool,
-    content: DocDocument,
+    content: ResponseDocument,
 }
 
 async fn get_document_content<M>(
@@ -348,7 +352,7 @@ async fn get_document_content<M>(
         None => return outbound.respond(wrapper.delivery_info, ErrorMessage::err("Missing user_id from certificate")).await
     };
     let filtre = doc! { "user_id": &user_id, "groupe_id": &requete.groupe_id, "doc_id": requete.doc_id };
-    let collection = mongo.get_collection_typed::<DocDocument>(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
+    let collection = mongo.get_collection_typed::<ResponseDocument>(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
     match collection.find_one(filtre).await? {
         Some(document) => {
             let response = ResponseGetDocumentContent { ok: true, content: document };

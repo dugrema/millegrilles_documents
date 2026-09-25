@@ -87,17 +87,22 @@ pub struct TransactionSauvegarderDocument {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DocDocument {
+pub struct ResponseDocument {
     pub doc_id: String,
     pub groupe_id: String,
     pub categorie_version: i32,
     pub data_chiffre: String,
+    #[serde(
+        default,
+        rename(deserialize = "_mg-derniere-modification"),
+        serialize_with = "optionepochseconds::serialize",
+        deserialize_with = "option_chrono_04_datetime::deserialize")]
+    pub modification_date: Option<DateTime<Utc>>,
     pub supprime: Option<bool>,
     #[serde(default,
         serialize_with = "optionepochseconds::serialize",
         deserialize_with = "option_chrono_04_datetime::deserialize")]
     pub supprime_date: Option<DateTime<Utc>>,
-
     pub cle_id: Option<String>,
     #[serde(with="formatchiffragestr")]
     pub format: FormatChiffrage,
@@ -111,6 +116,8 @@ pub struct DocDocument {
 pub struct DocIdentity {
     pub doc_id: String,
     pub supprime: Option<bool>,
+    #[serde(default, rename = "_mg-derniere-modification", with = "option_chrono_04_datetime")]
+    pub modification_date: Option<DateTime<Utc>>,
 }
 
 #[derive(Deserialize)]
