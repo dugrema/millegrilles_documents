@@ -71,7 +71,6 @@ impl TransactionRouter for SenseursPassifsTransactionRouter {
         wrapper: TransactionWrapper
     ) -> Result<TransactionOperationAggregator, CommonError> {
         match action.as_str() {
-            // TRANSACTION_LECTURE => lectures_transaction_legacy(self.mongo.as_ref(), wrapper).await,
             TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER => save_user_category(self.mongo.as_ref(), wrapper).await,
             TRANSACTION_SAUVEGARDER_GROUPE_USAGER => save_user_group(self.mongo.as_ref(), wrapper).await,
             TRANSACTION_SAUVEGARDER_DOCUMENT => save_document(self.mongo.as_ref(), wrapper).await,
@@ -98,9 +97,8 @@ async fn save_user_category(
     let user_id = match wrapper.get_certificate_user_id() {
         Some(user_id) => user_id,
         None => {
-            warn!("Old update_device_transaction with certificate missing user_id, skipping");
-            return Ok(aggregator);
-            // return Err(CommonError::Str("Missing user_id from certificate"))
+            warn!("Old save_user_category with certificate missing user_id");
+            return Err(CommonError::Str("Missing user_id from certificate"))
         }
     };
 
@@ -169,98 +167,6 @@ async fn save_user_category(
     Ok(aggregator)
 }
 
-// async fn update_device_transaction(
-//     mongo: &dyn MongoDao,
-//     wrapper: TransactionWrapper,
-// ) -> Result<TransactionOperationAggregator, CommonError> {
-//     // Deserialize, this validates the structure
-//     info!("Maj appareil: {:?}", wrapper.message.contenu);
-//     let transaction_value: TransactionMajAppareil = wrapper.message.deserialize()?;
-//
-//     let mut aggregator = TransactionOperationAggregator::new();
-//
-//     let user_id = match wrapper.get_certificate_user_id() {
-//         Some(user_id) => user_id,
-//         None => {
-//             warn!("Old update_device_transaction with certificate missing user_id, skipping");
-//             return Ok(aggregator);
-//             // return Err(CommonError::Str("Missing user_id from certificate"))
-//         }
-//     };
-//
-//     let mut set_ops = doc! {};
-//
-//     if let Some(inner) = transaction_value.configuration.descriptif {
-//         set_ops.insert("configuration.descriptif", inner);
-//     }
-//     if let Some(inner) = transaction_value.configuration.cacher_senseurs {
-//         set_ops.insert("configuration.cacher_senseurs", inner);
-//     }
-//     if let Some(inner) = transaction_value.configuration.descriptif_senseurs {
-//         for (key, value) in inner {
-//             set_ops.insert(format!("configuration.descriptif_senseurs.{key}"), value);
-//         }
-//     }
-//     if let Some(inner) = transaction_value.configuration.displays.as_ref() {
-//         let bson_map = match bson::serialize_to_document(inner) {
-//             Ok(inner) => inner,
-//             Err(e) => Err(format!("senseurspassifs.transaction_maj_appareil Erreur conversion displays en bson : {:?}", e))?
-//         };
-//         set_ops.insert("configuration.displays", bson_map);
-//     }
-//     if let Some(inner) = transaction_value.configuration.programmes.as_ref() {
-//         let bson_map = match bson::serialize_to_document(inner) {
-//             Ok(inner) => inner,
-//             Err(e) => Err(format!("senseurspassifs.transaction_maj_appareil Erreur conversion programmes en bson : {:?}", e))?
-//         };
-//         set_ops.insert("configuration.programmes", bson_map);
-//     }
-//     if let Some(inner) = transaction_value.configuration.timezone {
-//         set_ops.insert("configuration.timezone".to_string(), inner);
-//     } else {
-//         // Cannot unset: several update transactions do not send this info (e.g. programs).
-//         // unset_ops.insert("configuration.timezone".to_string(), true);
-//     }
-//     if let Some(inner) = transaction_value.configuration.geoposition.as_ref() {
-//         let bson_map = match bson::serialize_to_document(inner) {
-//             Ok(inner) => inner,
-//             Err(e) => Err(format!("senseurspassifs.transaction_maj_appareil Erreur conversion geoposition en bson : {:?}", e))?
-//         };
-//         set_ops.insert("configuration.geoposition", bson_map);
-//     } else {
-//         // Cannot unset: several update transactions do not send this info (e.g. programs).
-//         // unset_ops.insert("configuration.geoposition", true);
-//     }
-//     if let Some(inner) = transaction_value.configuration.filtres_senseurs {
-//         for (key, value) in inner {
-//             set_ops.insert(format!("configuration.filtres_senseurs.{key}"), value);
-//         }
-//     }
-//
-//     let ops = doc! {
-//         "$set": set_ops,
-//         "$setOnInsert": {
-//             CHAMP_CREATION: Utc::now(),
-//             CHAMP_UUID_APPAREIL: &transaction_value.uuid_appareil,
-//             CHAMP_USER_ID: &user_id,
-//         },
-//         "$currentDate": {CHAMP_MODIFICATION: true}
-//     };
-//     let filtre = doc! { CHAMP_UUID_APPAREIL: &transaction_value.uuid_appareil, CHAMP_USER_ID: &user_id };
-//     let collection = mongo.get_collection(COLLECTIONS_APPAREILS)?;
-//     let update_model = WriteModel::UpdateOne(
-//         UpdateOneModel::builder()
-//             .upsert(true)
-//             .namespace(collection.namespace())
-//             .filter(filtre)
-//             .update(ops)
-//             .build()
-//     );
-//     aggregator.ordered = Some(vec![update_model]);
-//
-//     Ok(aggregator)
-// }
-
 async fn save_user_group(
     mongo: &dyn MongoDao,
     wrapper: TransactionWrapper,
@@ -274,13 +180,49 @@ async fn save_user_group(
     let user_id = match wrapper.get_certificate_user_id() {
         Some(user_id) => user_id,
         None => {
-            warn!("Old update_device_transaction with certificate missing user_id, skipping");
-            return Ok(aggregator);
-            // return Err(CommonError::Str("Missing user_id from certificate"))
+            warn!("Old save_user_group with certificate missing user_id");
+            return Err(CommonError::Str("Missing user_id from certificate"))
         }
     };
 
-    todo!();
+    let group_id = match transaction_value.groupe_id {
+        Some(group_id) => group_id,
+        None => wrapper.message.id.clone()
+    };
+    let format_str: &str = transaction_value.format.into();
+
+    let ops = doc! {
+        "$set": {
+            "data_chiffre": transaction_value.data_chiffre,
+            "format": format_str,
+            "header": transaction_value.header,
+            "ref_hachage_bytes": transaction_value.ref_hachage_bytes,
+            "cle_id": transaction_value.cle_id,
+            "nonce": transaction_value.nonce,
+        },
+        "$setOnInsert": {
+            "groupe_id": &group_id,
+            "categorie_id": &transaction_value.categorie_id,
+            "user_id": &user_id,
+            CHAMP_CREATION: Utc::now(),
+        },
+        "$currentDate": {CHAMP_MODIFICATION: true},
+    };
+    let filtre = doc! {
+        "groupe_id": &group_id,
+        "user_id": &user_id,
+    };
+
+    let collection = mongo.get_collection(NOM_COLLECTION_GROUPES_USAGERS)?;
+    let update_model_group = WriteModel::UpdateOne(
+        UpdateOneModel::builder()
+            .upsert(true)
+            .namespace(collection.namespace())
+            .filter(filtre)
+            .update(ops.clone())
+            .build()
+    );
+    aggregator.ordered = Some(vec![update_model_group]);   // Must be done in order to keep most recent version up to date
 
     Ok(aggregator)
 }
