@@ -6,15 +6,17 @@ use millegrilles_common_rust::v3::facades::message_inbound::MessageValidated;
 use millegrilles_common_rust::v3::facades::message_outbound::MessageOutboundFacade;
 use millegrilles_common_rust::error::Error as CommonError;
 use millegrilles_common_rust::generateur_messages::RoutageMessageAction;
+use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{MessageMilleGrillesOwned, MessageValidable};
 use millegrilles_common_rust::millegrilles_cryptographie::x509::EnveloppeCertificat;
 use millegrilles_common_rust::mongo_dao::MongoDaoTyped;
-use millegrilles_common_rust::tracing::{debug, error, info, warn};
-use millegrilles_common_rust::v3::{BackupService, PresenceService};
-use millegrilles_common_rust::v3::models::ErrorMessage;
+use millegrilles_common_rust::tracing::{debug, error, event, info, warn};
+use millegrilles_common_rust::v3::{BackupService, MessagingService, PkiService, PresenceService};
+use millegrilles_common_rust::v3::models::{ErrorMessage, VerifiedResponseMessage};
 use millegrilles_common_rust::serde::Serialize;
-use crate::common::{DocCategorieUsager, TransactionSauvegarderCategorieUsager, TransactionSauvegarderDocument, TransactionSauvegarderGroupeUsager, TransactionSupprimerDocument, TransactionSupprimerGroupe};
+use millegrilles_common_rust::serde_json;
+use crate::common::{DocCategorieUsager, DocGroupeUsager, TransactionSauvegarderCategorieUsager, TransactionSauvegarderDocument, TransactionSauvegarderGroupeUsager, TransactionSupprimerDocument, TransactionSupprimerGroupe};
 use crate::constantes::{DOMAINE_NOM, EVENEMENT_UPDATE_CATGGROUP};
-use crate::external::mongo::{COLLECTION_NAME_REDOLOG, NOM_COLLECTION_CATEGORIES_USAGERS};
+use crate::external::mongo::{COLLECTION_NAME_REDOLOG, NOM_COLLECTION_CATEGORIES_USAGERS, NOM_COLLECTION_GROUPES_USAGERS};
 use crate::flow::transactions::*;
 use crate::flow::transactions::DocumentsTransactionService;
 
@@ -22,6 +24,8 @@ use crate::flow::transactions::DocumentsTransactionService;
 /// calls transaction processor and then handles responses and emits events.
 pub async fn process_transaction<M>(
     mongo: &M,
+    messaging: &dyn MessagingService,
+    pki: &dyn PkiService,
     outbound: &MessageOutboundFacade,
     transaction: &DocumentsTransactionService,
     wrapper: MessageValidated
@@ -32,7 +36,7 @@ pub async fn process_transaction<M>(
     };
     match action {
         TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER => save_user_category(mongo, outbound, transaction, wrapper).await,
-        TRANSACTION_SAUVEGARDER_GROUPE_USAGER => save_user_group(mongo, outbound, transaction, wrapper).await,
+        TRANSACTION_SAUVEGARDER_GROUPE_USAGER => save_user_group(mongo, messaging, pki, outbound, transaction, wrapper).await,
         TRANSACTION_SAUVEGARDER_DOCUMENT => save_document(mongo, outbound, transaction, wrapper).await,
         TRANSACTION_SUPPRIMER_DOCUMENT => delete_document(mongo, outbound, transaction, wrapper).await,
         TRANSACTION_RECUPERER_DOCUMENT => restore_document(mongo, outbound, transaction, wrapper).await,
@@ -134,20 +138,100 @@ pub async fn save_user_category<M>(
     outbound.respond(delivery_info, reponse).await
 }
 
+#[derive(Serialize)]
+struct ReponseTransactionSauvegarderGroupe {
+    ok: bool,
+    group_id: String,
+}
+
 pub async fn save_user_group<M>(
     mongo: &M,
+    messaging: &dyn MessagingService,
+    pki: &dyn PkiService,
     outbound: &MessageOutboundFacade,
     transaction: &DocumentsTransactionService,
-    wrapper: MessageValidated,
+    mut wrapper: MessageValidated,
 ) -> Result<(), CommonError> where M: MongoDaoTyped
 {
+    if ! is_user_role(&wrapper.certificate)? {
+        return outbound.respond(wrapper.delivery_info, ErrorMessage::err_code(401, "Not authorized")).await;
+    }
     let user_id = match wrapper.get_certificate_user_id() {
         Some(user_id) => user_id,
         None => return outbound.respond(wrapper.delivery_info, ErrorMessage::err("User_id missing from certificate")).await
     };
     // Deserialize, this validates the structure
-    let transaction_value: TransactionSauvegarderGroupeUsager = wrapper.message.deserialize()?;
-    todo!()
+    let mut transaction_value: TransactionSauvegarderGroupeUsager = wrapper.message.deserialize()?;
+
+    // S'assurer qu'il n'y a pas de conflit de version pour la categorie
+    if let Some(groupe_id) = &transaction_value.groupe_id {
+        let filtre = doc! { "groupe_id": groupe_id, "user_id": &user_id };
+        let collection = mongo.get_collection_typed::<DocGroupeUsager>(NOM_COLLECTION_GROUPES_USAGERS)?;
+        let doc_groupe_option = collection.find_one(filtre).await?;
+        if let Some(doc_groupe) = doc_groupe_option {
+            if doc_groupe.categorie_id != transaction_value.categorie_id {
+                return outbound.respond(wrapper.delivery_info, ErrorMessage::err("Category must not be changed")).await
+            }
+        }
+    }
+
+    match wrapper.message.attachements.take() {
+        Some(mut attachements) => match attachements.remove("cle") {
+            Some(cle) => {
+                let mut message_cle: MessageMilleGrillesOwned = serde_json::from_value(cle)?;
+                // Verify that the message is properly signed and certificate is valid
+                message_cle.verifier_signature()?;
+                pki.validate_message(&message_cle).await?;
+                // Relay the key to the keymaster
+                transmettre_cle_attachee(messaging, message_cle).await?;
+            },
+            None => {
+                error!("New group encryption key is missing (1)");
+                return outbound.respond(wrapper.delivery_info, ErrorMessage::err("Encryption key is missing")).await
+            }
+        },
+        None => {
+            if let Some(groupe_id) = transaction_value.groupe_id.as_ref() {
+                // Ensure the group already exists (reuse the key)
+                let collection = mongo.get_collection(NOM_COLLECTION_GROUPES_USAGERS)?;
+                let filter = doc! {"groupe_id": groupe_id};
+                let doc_existant = collection.find_one(filter).await?;
+                if doc_existant.is_none() {
+                    // Le groupe n'existe pas. On a besoin d'une cle attachee.
+                    error!("New group encryption key is missing (2)");
+                    return outbound.respond(wrapper.delivery_info, ErrorMessage::err("Encryption key is missing")).await
+                }
+            } else {
+                error!("New group encryption key is missing (3)");
+                return outbound.respond(wrapper.delivery_info, ErrorMessage::err("Encryption key is missing")).await
+            }
+        }
+    }
+
+    // Run transaction updates
+    let delivery_info = wrapper.delivery_info.clone();
+    let message_id = wrapper.message.id.clone();
+    transaction.process_transaction(wrapper.into(), None).await?;
+
+    // Ensure the groupe_id is included in the response
+    let group_id = match transaction_value.groupe_id.as_ref() {
+        Some(group_id) => group_id.clone(),
+        None => {
+            transaction_value.groupe_id = Some(message_id.clone());
+            message_id
+        }
+    };
+
+    // Emit update event
+    let event = EvenementMaj { category: None, group: Some(transaction_value) };
+    let routing = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_UPDATE_CATGGROUP, vec![Securite::L2Prive])
+        .partition(user_id)
+        .build();
+    outbound.emit_event(routing, event).await?;
+
+    // Respond
+    let response = ReponseTransactionSauvegarderGroupe { ok: true, group_id };
+    outbound.respond(delivery_info, response).await
 }
 
 pub async fn save_document<M>(
@@ -308,5 +392,24 @@ async fn trigger_complete_backup(
             outbound.respond(wrapper.delivery_info, response).await.ok();
             Err(e)
         }
+    }
+}
+
+async fn transmettre_cle_attachee(
+    messaging: &dyn MessagingService,
+    message_cle: MessageMilleGrillesOwned
+) -> Result<(), millegrilles_common_rust::error::Error> {
+    let routing = RoutageMessageAction::builder(
+        DOMAINE_NOM_MAITREDESCLES, COMMANDE_AJOUTER_CLE_DOMAINES, vec![Securite::L1Public])
+        .correlation_id(&message_cle.id)
+        .build();
+
+    let response = messaging.send(message_cle.try_into()?, routing).await?;
+
+    let (is_err, e) = response.is_err()?;
+    if is_err {
+        Err(CommonError::String(format!("Error saving keys: {:?}", e)))
+    } else {
+        Ok(())
     }
 }

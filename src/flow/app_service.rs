@@ -138,6 +138,8 @@ impl ApplicationService {
                 Ok(message) => {
                     if let Err(e) = process_transaction(
                         self.mongo.as_ref(),
+                        self.messaging.as_ref(),
+                        self.pki.as_ref(),
                         self.outbound.as_ref(),
                         self.transaction.as_ref(),
                         message
