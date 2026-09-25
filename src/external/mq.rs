@@ -43,7 +43,7 @@ pub fn init_queues(mq: &MessagingServiceImpl) -> Result<(), CommonError> {
 
     mq.add_named_queue(
         ConfigQueue {
-            nom_queue: format!("{}/{}", DOMAINE_NOM, QUEUE_COMMANDS),
+            nom_queue: format!("{}/{}", DOMAINE_NOM, QUEUE_TRANSACTIONS),
             routing_keys: vec![
                 ConfigRoutingExchange { routing_key: format!("commande.{}.{}", DOMAINE_NOM, TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER), exchange: Securite::L2Prive },
                 ConfigRoutingExchange { routing_key: format!("commande.{}.{}", DOMAINE_NOM, TRANSACTION_SAUVEGARDER_GROUPE_USAGER), exchange: Securite::L2Prive },
@@ -52,17 +52,6 @@ pub fn init_queues(mq: &MessagingServiceImpl) -> Result<(), CommonError> {
                 ConfigRoutingExchange { routing_key: format!("commande.{}.{}", DOMAINE_NOM, TRANSACTION_RECUPERER_DOCUMENT), exchange: Securite::L2Prive },
                 ConfigRoutingExchange { routing_key: format!("commande.{}.{}", DOMAINE_NOM, TRANSACTION_SUPPRIMER_GROUPE), exchange: Securite::L2Prive },
                 ConfigRoutingExchange { routing_key: format!("commande.{}.{}", DOMAINE_NOM, TRANSACTION_RECUPERER_GROUPE), exchange: Securite::L2Prive },
-            ],
-            ttl: Some(QUEUE_TTL_DEFAULT),
-            durable: true,
-            autodelete: false,
-        })?;
-
-    mq.add_named_queue(
-        ConfigQueue {
-            nom_queue: format!("{}/{}", DOMAINE_NOM, QUEUE_TRANSACTIONS),
-            routing_keys: vec![
-                // ConfigRoutingExchange { routing_key: format!("commande.{}.{}", DOMAINE_NOM, TRANSACTION_MAJ_SENSEUR), exchange: Securite::L2Prive },
             ],
             ttl: Some(QUEUE_TTL_DEFAULT),
             durable: true,

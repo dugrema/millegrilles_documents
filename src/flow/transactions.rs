@@ -373,19 +373,37 @@ async fn delete_user_group(
     info!("Maj appareil: {:?}", wrapper.message.contenu);
     let transaction_value: TransactionSupprimerGroupe = wrapper.message.deserialize()?;
 
-    let mut aggregator = TransactionOperationAggregator::new();
-
     let user_id = match wrapper.get_certificate_user_id() {
         Some(user_id) => user_id,
         None => {
-            warn!("Old update_device_transaction with certificate missing user_id, skipping");
-            return Ok(aggregator);
-            // return Err(CommonError::Str("Missing user_id from certificate"))
+            warn!("Old delete_user_group with certificate missing user_id");
+            return Err(CommonError::Str("Missing user_id from certificate"))
         }
     };
 
-    todo!();
+    let groupe_id = transaction_value.groupe_id;
 
+    // Remplacer la version la plus recente
+    let filtre = doc! {
+        "groupe_id": &groupe_id,
+        "user_id": &user_id,
+    };
+    let ops = doc! {
+        "$set": {"supprime": true},
+        "$currentDate": {CHAMP_MODIFICATION: true, NOM_CHAMP_SUPPRIME_DATE: true},
+    };
+    let collection = mongo.get_collection(NOM_COLLECTION_GROUPES_USAGERS)?;
+    let update_model_doc = WriteModel::UpdateOne(
+        UpdateOneModel::builder()
+            .upsert(true)
+            .namespace(collection.namespace())
+            .filter(filtre)
+            .update(ops.clone())
+            .build()
+    );
+
+    let mut aggregator = TransactionOperationAggregator::new();
+    aggregator.ordered = Some(vec![update_model_doc]);
     Ok(aggregator)
 }
 
@@ -408,7 +426,29 @@ async fn restore_user_group(
         }
     };
 
-    todo!();
+    let groupe_id = transaction_value.groupe_id;
 
+    // Remplacer la version la plus recente
+    let filtre = doc! {
+        "groupe_id": &groupe_id,
+        "user_id": &user_id,
+    };
+    let ops = doc! {
+        "$set": {"supprime": false},
+        "$unset": {NOM_CHAMP_SUPPRIME_DATE: true},
+        "$currentDate": {CHAMP_MODIFICATION: true},
+    };
+    let collection = mongo.get_collection(NOM_COLLECTION_GROUPES_USAGERS)?;
+    let update_model_doc = WriteModel::UpdateOne(
+        UpdateOneModel::builder()
+            .upsert(true)
+            .namespace(collection.namespace())
+            .filter(filtre)
+            .update(ops.clone())
+            .build()
+    );
+
+    let mut aggregator = TransactionOperationAggregator::new();
+    aggregator.ordered = Some(vec![update_model_doc]);
     Ok(aggregator)
 }

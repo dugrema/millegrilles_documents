@@ -69,7 +69,17 @@ impl ApplicationService {
         let incoming_clone = incoming.clone();
         join_set.spawn(async move {self_clone.process_ticker_thread(incoming_clone).await});
 
-        todo!();
+        let self_clone = self.clone();
+        let incoming_clone = incoming.clone();
+        join_set.spawn(async move {self_clone.process_requests_thread(incoming_clone).await});
+
+        let self_clone = self.clone();
+        let incoming_clone = incoming.clone();
+        join_set.spawn(async move {self_clone.process_transaction_thread(incoming_clone).await});
+
+        let self_clone = self.clone();
+        let incoming_clone = incoming.clone();
+        join_set.spawn(async move {self_clone.process_backup_thread(incoming_clone).await});
 
         Ok(())
     }

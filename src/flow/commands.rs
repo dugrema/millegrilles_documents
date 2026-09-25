@@ -415,6 +415,12 @@ pub async fn restore_document<M>(
     outbound.respond(delivery_info, reponse).await
 }
 
+#[derive(Serialize)]
+struct EvenementGroupeSupprime {
+    groupe_id: String,
+    supprime: bool,
+}
+
 pub async fn delete_user_group<M>(
     mongo: &M,
     outbound: &MessageOutboundFacade,
@@ -431,7 +437,37 @@ pub async fn delete_user_group<M>(
     };
     // Deserialize, this validates the structure
     let transaction_value: TransactionSupprimerGroupe = wrapper.message.deserialize()?;
-    todo!()
+
+    // Verifier que le document existe et n'est pas supprime.
+    let collection = mongo.get_collection_typed::<DocGroupeUsager>(NOM_COLLECTION_GROUPES_USAGERS)?;
+    let filtre = doc!{"user_id": &user_id, "groupe_id": &transaction_value.groupe_id};
+    if let Some(groupe_existant) = collection.find_one(filtre).await? {
+        if Some(true) == groupe_existant.supprime {
+            // Groupe deja supprime
+            debug!("delete_user_group Group already deleted");
+            return outbound.respond(wrapper.delivery_info, ErrorMessage::err("Group already deleted")).await
+        }
+    } else {
+        debug!("delete_user_group Unknown document");
+        return outbound.respond(wrapper.delivery_info, ErrorMessage::err_code(404, "Unknown group")).await
+    };
+
+    // Run transaction updates
+    let delivery_info = wrapper.delivery_info.clone();
+    transaction.process_transaction(wrapper.into(), None).await?;
+
+    // Emettre evenement maj
+    let event = EvenementGroupeSupprime { groupe_id: transaction_value.groupe_id.clone(), supprime: true };
+
+    // Check if we set the doc_id from message_id on new document.
+    let routing = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_UPDATE_CATGGROUP, vec![Securite::L2Prive])
+        .partition(user_id)
+        .build();
+    outbound.emit_event(routing, event).await?;
+
+    // Respond
+    let response = ReponseTransactionSauvegarderGroupe { ok: true, group_id: transaction_value.groupe_id };
+    outbound.respond(delivery_info, response).await
 }
 
 pub async fn restore_user_group<M>(
@@ -450,7 +486,37 @@ pub async fn restore_user_group<M>(
     };
     // Deserialize, this validates the structure
     let transaction_value: TransactionSupprimerGroupe = wrapper.message.deserialize()?;
-    todo!()
+
+    // Verifier que le document existe et n'est pas supprime.
+    let collection = mongo.get_collection_typed::<DocGroupeUsager>(NOM_COLLECTION_GROUPES_USAGERS)?;
+    let filtre = doc!{"user_id": &user_id, "groupe_id": &transaction_value.groupe_id};
+    if let Some(groupe_existant) = collection.find_one(filtre).await? {
+        if Some(true) != groupe_existant.supprime {
+            // Groupe deja supprime
+            debug!("restore_user_group Group not deleted");
+            return outbound.respond(wrapper.delivery_info, ErrorMessage::err("Group not deleted")).await
+        }
+    } else {
+        debug!("restore_user_group Unknown document");
+        return outbound.respond(wrapper.delivery_info, ErrorMessage::err_code(404, "Unknown group")).await
+    };
+
+    // Run transaction updates
+    let delivery_info = wrapper.delivery_info.clone();
+    transaction.process_transaction(wrapper.into(), None).await?;
+
+    // Emettre evenement maj
+    let event = EvenementGroupeSupprime { groupe_id: transaction_value.groupe_id.clone(), supprime: false };
+
+    // Check if we set the doc_id from message_id on new document.
+    let routing = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_UPDATE_CATGGROUP, vec![Securite::L2Prive])
+        .partition(user_id)
+        .build();
+    outbound.emit_event(routing, event).await?;
+
+    // Respond
+    let response = ReponseTransactionSauvegarderGroupe { ok: true, group_id: transaction_value.groupe_id };
+    outbound.respond(delivery_info, response).await
 }
 
 pub async fn process_backup(
