@@ -17,6 +17,7 @@ use millegrilles_common_rust::v3::models::ErrorMessage;
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{epochseconds, optionepochseconds, MessageKind};
 use millegrilles_common_rust::millegrilles_cryptographie::chiffrage::formatchiffragestr;
+use millegrilles_common_rust::mongodb::options::Hint;
 use millegrilles_common_rust::serde_json;
 use millegrilles_common_rust::v3::{FormatService, MessagingService};
 use crate::common::{DocCategorieUsager, ResponseDocument, DocGroupeUsager, DocIdentity};
@@ -260,8 +261,8 @@ async fn get_group_keys<M>(
 #[derive(Deserialize)]
 struct RequestGetGroupDocuments {
     groupe_id: String,
-    // limit: Option<i32>,
-    // skip: Option<i32>,
+    limit: Option<i64>,
+    skip: Option<u64>,
     supprime: Option<bool>,
     // /// Last sync date, allows for incremental download
     // #[serde(default, deserialize_with = "optionepochseconds::deserialize")]
@@ -299,8 +300,14 @@ async fn get_group_documents_list<M>(
     }
     let collection = mongo.get_collection_typed::<DocIdentity>(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
 
+    let skip = requete.skip.unwrap_or(0);
+    let limit = requete.limit.unwrap_or(10_000);
+
     let mut curseur = collection
         .find(filtre)
+        .hint(Hint::Keys(doc !{"_id": 1}))  // Sort by _id for skip/limit
+        .skip(skip)
+        .limit(limit)
         .projection(doc!{
             "doc_id": true,
             "supprime": true,
@@ -308,8 +315,10 @@ async fn get_group_documents_list<M>(
         })
         .await?;
 
+    let mut count = 0;
     while let Some(row) = curseur.next().await {
         let doc = row?;
+        count += 1;
         // Distinguish active and deleted documents
         if Some(true) == doc.supprime {
             liste_supprimes.push(doc.doc_id);
@@ -321,7 +330,7 @@ async fn get_group_documents_list<M>(
     let response = ReponseGetDocumentsGroupe {
         documents: liste_documents,
         supprimes: liste_supprimes,
-        done: true,
+        done: count < limit,
     };
 
     // Derniere reponse, incluant si streaming
