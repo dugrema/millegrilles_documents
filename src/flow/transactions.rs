@@ -1,5 +1,5 @@
 use crate::common::*;
-use crate::external::mongo::{COLLECTION_NAME_REDOLOG, COLLECTION_NAME_TRACKING};
+use crate::external::mongo::*;
 use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::bson;
 use millegrilles_common_rust::bson::doc;
@@ -12,7 +12,7 @@ use millegrilles_common_rust::mongodb::options::{UpdateOneModel, WriteModel};
 use millegrilles_common_rust::serde_json::Value;
 use millegrilles_common_rust::tracing::{info, warn};
 use millegrilles_common_rust::v3::impls::transaction_service::TransactionServiceImpl;
-use millegrilles_common_rust::v3::models::{BatchInsertions, TransactionOperationAggregator, TransactionWrapper};
+use millegrilles_common_rust::v3::models::{TransactionOperationAggregator, TransactionWrapper};
 use millegrilles_common_rust::v3::{ConfigService, FormatService, TransactionRouter, TransactionService};
 use std::sync::Arc;
 
@@ -104,11 +104,70 @@ async fn save_user_category(
         }
     };
 
-    todo!();
+    let categorie_id = match transaction_value.categorie_id {
+        Some(categorie_id) => categorie_id,
+        None => wrapper.message.id.clone()
+    };
+
+    let version_categorie = match &transaction_value.version {
+        Some(inner) => inner.to_owned() as i32,
+        None => 1
+    };
+
+    // Build update
+    let champs = bson::serialize_to_bson(&transaction_value.champs)?;
+
+    let ops = doc! {
+        "$set": {
+            "nom_categorie": transaction_value.nom_categorie,
+            "champs": champs,
+            "version": version_categorie,
+        },
+        "$setOnInsert": {
+            "categorie_id": &categorie_id,
+            "user_id": &user_id,
+            CHAMP_CREATION: Utc::now(),
+        },
+        "$currentDate": {CHAMP_MODIFICATION: true},
+    };
+
+    // Replace the most recent version
+    let filtre = doc! {
+        "categorie_id": &categorie_id,
+        "user_id": &user_id,
+        "version": {"$lt": &version_categorie},
+    };
+
+    let collection_categories = mongo.get_collection(NOM_COLLECTION_CATEGORIES_USAGERS)?;
+    let update_model_categories = WriteModel::UpdateOne(
+        UpdateOneModel::builder()
+            .upsert(true)
+            .namespace(collection_categories.namespace())
+            .filter(filtre)
+            .update(ops.clone())
+            .build()
+    );
+    aggregator.ordered = Some(vec![update_model_categories]);   // Must be done in order to keep most recent version up to date
+
+    // Insert the version for history
+    let collection_versions = mongo.get_collection(NOM_COLLECTION_CATEGORIES_USAGERS_VERSION)?;
+    let filtre_versions = doc! {
+            "categorie_id": &categorie_id,
+            "user_id": &user_id,
+            "version": version_categorie,
+        };
+    let update_model_versions = WriteModel::UpdateOne(
+        UpdateOneModel::builder()
+            .upsert(true)
+            .namespace(collection_versions.namespace())
+            .filter(filtre_versions)
+            .update(ops)
+            .build()
+    );
+    aggregator.unordered = Some(vec![update_model_versions]);   // This really is just an insert
 
     Ok(aggregator)
 }
-
 
 // async fn update_device_transaction(
 //     mongo: &dyn MongoDao,

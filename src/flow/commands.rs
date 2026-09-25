@@ -1,16 +1,20 @@
+use millegrilles_common_rust::bson::doc;
 use millegrilles_common_rust::certificats::VerificateurPermissions;
 use millegrilles_common_rust::common_messages::BackupEvent;
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::v3::facades::message_inbound::MessageValidated;
 use millegrilles_common_rust::v3::facades::message_outbound::MessageOutboundFacade;
 use millegrilles_common_rust::error::Error as CommonError;
+use millegrilles_common_rust::generateur_messages::RoutageMessageAction;
+use millegrilles_common_rust::millegrilles_cryptographie::x509::EnveloppeCertificat;
 use millegrilles_common_rust::mongo_dao::MongoDaoTyped;
 use millegrilles_common_rust::tracing::{debug, error, info, warn};
 use millegrilles_common_rust::v3::{BackupService, PresenceService};
 use millegrilles_common_rust::v3::models::ErrorMessage;
-use crate::common::{TransactionSauvegarderCategorieUsager, TransactionSauvegarderDocument, TransactionSauvegarderGroupeUsager, TransactionSupprimerDocument, TransactionSupprimerGroupe};
-use crate::constantes::DOMAINE_NOM;
-use crate::external::mongo::COLLECTION_NAME_REDOLOG;
+use millegrilles_common_rust::serde::Serialize;
+use crate::common::{DocCategorieUsager, TransactionSauvegarderCategorieUsager, TransactionSauvegarderDocument, TransactionSauvegarderGroupeUsager, TransactionSupprimerDocument, TransactionSupprimerGroupe};
+use crate::constantes::{DOMAINE_NOM, EVENEMENT_UPDATE_CATGGROUP};
+use crate::external::mongo::{COLLECTION_NAME_REDOLOG, NOM_COLLECTION_CATEGORIES_USAGERS};
 use crate::flow::transactions::*;
 use crate::flow::transactions::DocumentsTransactionService;
 
@@ -41,6 +45,28 @@ pub async fn process_transaction<M>(
     }
 }
 
+#[derive(Serialize)]
+struct EvenementMaj {
+    category: Option<TransactionSauvegarderCategorieUsager>,
+    group: Option<TransactionSauvegarderGroupeUsager>,
+}
+
+#[derive(Serialize)]
+struct ReponseTransactionSauvegarderCategorie {
+    ok: bool,
+    category_id: String,
+}
+
+fn is_user_role(certificate: &EnveloppeCertificat) -> Result<bool, CommonError> {
+    if certificate.verifier_roles(vec![RolesCertificats::ComptePrive])? {
+        Ok(true)
+    } else if certificate.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE)? {
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
 pub async fn save_user_category<M>(
     mongo: &M,
     outbound: &MessageOutboundFacade,
@@ -48,22 +74,64 @@ pub async fn save_user_category<M>(
     wrapper: MessageValidated,
 ) -> Result<(), CommonError> where M: MongoDaoTyped
 {
+    // Autorisation: Action usager avec compte prive ou delegation globale
     let user_id = match wrapper.get_certificate_user_id() {
         Some(user_id) => user_id,
         None => return outbound.respond(wrapper.delivery_info, ErrorMessage::err("User_id missing from certificate")).await
     };
-    // Deserialize, this validates the structure
-    let transaction_value: TransactionSauvegarderCategorieUsager = wrapper.message.deserialize()?;
+    if ! is_user_role(&wrapper.certificate)? {
+        return outbound.respond(wrapper.delivery_info, ErrorMessage::err_code(401, "Not authorized")).await;
+    }
 
-    todo!("Validate");
+    // Deserialize, this validates the structure
+    let mut transaction_value: TransactionSauvegarderCategorieUsager = wrapper.message.deserialize()?;
+
+    // S'assurer qu'il n'y a pas de conflit de version pour la categorie
+    if let Some(categorie_id) = &transaction_value.categorie_id {
+        match transaction_value.version {
+            Some(version) => {
+                // Si la categorie existe, s'assure que la version est anterieure.
+                // Note : pour une categorie qui n'est pas connue, on accepte n'importe quelle version initiale
+                let filtre = doc! { "categorie_id": categorie_id, "user_id": &user_id };
+                let collection = mongo.get_collection_typed::<DocCategorieUsager>(NOM_COLLECTION_CATEGORIES_USAGERS)?;
+                let doc_categorie_option = collection.find_one(filtre).await?;
+                if let Some(categorie) = doc_categorie_option {
+                    if categorie.version >= version {
+                        return outbound.respond(wrapper.delivery_info, ErrorMessage::err_code(409, "Category version exists")).await;
+                    }
+                }
+            },
+            None => {
+                return outbound.respond(wrapper.delivery_info, ErrorMessage::err_code(409, "Category version exists without version")).await;
+            }
+        }
+    }
 
     // Run transaction updates
     let delivery_info = wrapper.delivery_info.clone();
+    let message_id = wrapper.message.id.clone();
     transaction.process_transaction(wrapper.into(), None).await?;
 
-    todo!("Emit messages");
+    // Inject noew categorie_id when required
+    let category_id = match transaction_value.categorie_id.as_ref() {
+        Some(category_id) => category_id.clone(),
+        None => {
+            // Inject the new category_id
+            transaction_value.categorie_id = Some(message_id.clone());
+            message_id
+        }
+    };
 
-    outbound.respond(delivery_info, ErrorMessage::ok()).await
+    // Emit update event for front-end
+    let event = EvenementMaj { category: Some(transaction_value), group: None };
+    let routing = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_UPDATE_CATGGROUP, vec![Securite::L2Prive])
+        .partition(&user_id)
+        .build();
+    outbound.emit_event(routing, event).await?;
+
+    // Respond to user
+    let reponse = ReponseTransactionSauvegarderCategorie { ok: true, category_id };
+    outbound.respond(delivery_info, reponse).await
 }
 
 pub async fn save_user_group<M>(
