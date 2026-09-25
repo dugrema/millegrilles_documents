@@ -118,6 +118,8 @@ pub struct DocIdentity {
     pub supprime: Option<bool>,
     #[serde(default, rename = "_mg-derniere-modification", with = "option_chrono_04_datetime")]
     pub modification_date: Option<DateTime<Utc>>,
+    /// Here the nonce is used to match with latest version (nonce must change on each update)
+    pub nonce: Option<String>,
 }
 
 #[derive(Deserialize)]

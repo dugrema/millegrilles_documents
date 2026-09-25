@@ -34,7 +34,7 @@ pub fn init_queues(mq: &MessagingServiceImpl) -> Result<(), CommonError> {
                 ConfigRoutingExchange { routing_key: format!("requete.{}.{}", DOMAINE_NOM, REQUEST_USER_GROUPS), exchange: Securite::L2Prive },
                 ConfigRoutingExchange { routing_key: format!("requete.{}.{}", DOMAINE_NOM, REQUEST_GROUP_KEYS), exchange: Securite::L2Prive },
                 ConfigRoutingExchange { routing_key: format!("requete.{}.{}", DOMAINE_NOM, REQUEST_GROUP_DOCUMENTLIST), exchange: Securite::L2Prive },
-                ConfigRoutingExchange { routing_key: format!("requete.{}.{}", DOMAINE_NOM, REQUEST_DOCUMENT_CONTENT), exchange: Securite::L2Prive },
+                ConfigRoutingExchange { routing_key: format!("requete.{}.{}", DOMAINE_NOM, REQUEST_DOCUMENTS_CONTENT), exchange: Securite::L2Prive },
             ],
             ttl: Some(QUEUE_TTL_DEFAULT),
             durable: true,

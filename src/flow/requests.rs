@@ -28,7 +28,7 @@ pub const REQUEST_USER_CATEGORIES: &str = "getCategoriesUsager";
 pub const REQUEST_USER_GROUPS: &str = "getGroupesUsager";
 pub const REQUEST_GROUP_KEYS: &str = "getClesGroupes";
 pub const REQUEST_GROUP_DOCUMENTLIST: &str = "getGroupDocList";
-pub const REQUEST_DOCUMENT_CONTENT: &str = "getDocContent";
+pub const REQUEST_DOCUMENTS_CONTENT: &str = "getDocsContent";
 
 pub async fn process_request<M>(
     mongo: &M,
@@ -46,7 +46,7 @@ pub async fn process_request<M>(
         REQUEST_USER_GROUPS => get_user_groups(mongo, outbound, wrapper).await,
         REQUEST_GROUP_KEYS => get_group_keys(mongo, outbound, messaging, format, wrapper).await,
         REQUEST_GROUP_DOCUMENTLIST => get_group_documents_list(mongo, outbound, wrapper).await,
-        REQUEST_DOCUMENT_CONTENT => get_document_content(mongo, outbound, wrapper).await,
+        REQUEST_DOCUMENT_CONTENT => get_documents_content(mongo, outbound, wrapper).await,
 
         _ => {
             info!("Unknown action {} for process_request, skipping", action);
@@ -273,6 +273,7 @@ struct RequestGetGroupDocuments {
 
 #[derive(Serialize)]
 struct ReponseGetDocumentsGroupe {
+    ok: bool,
     documents: Vec<DocIdentity>,
     supprimes: Vec<String>,
     done: bool,
@@ -312,23 +313,26 @@ async fn get_group_documents_list<M>(
         .projection(doc!{
             "doc_id": true,
             "supprime": true,
+            "nonce": true,
             "_mg-derniere-modification": true,
         })
         .await?;
 
     let mut count = 0;
     while let Some(row) = curseur.next().await {
-        let doc = row?;
+        let mut doc = row?;
         count += 1;
         // Distinguish active and deleted documents
         if Some(true) == doc.supprime {
             liste_supprimes.push(doc.doc_id);
         } else {
+            doc.supprime = Some(false);  // Ensure supprime is always present and false
             liste_documents.push(doc);
         }
     }
 
     let response = ReponseGetDocumentsGroupe {
+        ok: true,
         documents: liste_documents,
         supprimes: liste_supprimes,
         done: count < limit,
@@ -341,16 +345,16 @@ async fn get_group_documents_list<M>(
 #[derive(Deserialize)]
 struct RequestGetDocumentContent {
     groupe_id: String,
-    doc_id: String,
+    doc_ids: Vec<String>,
 }
 
 #[derive(Serialize)]
 struct ResponseGetDocumentContent {
     ok: bool,
-    content: ResponseDocument,
+    documents: Vec<ResponseDocument>,
 }
 
-async fn get_document_content<M>(
+async fn get_documents_content<M>(
     mongo: &M,
     outbound: &MessageOutboundFacade,
     wrapper: MessageValidated
@@ -361,15 +365,15 @@ async fn get_document_content<M>(
         Some(inner) => inner,
         None => return outbound.respond(wrapper.delivery_info, ErrorMessage::err("Missing user_id from certificate")).await
     };
-    let filtre = doc! { "user_id": &user_id, "groupe_id": &requete.groupe_id, "doc_id": requete.doc_id };
+    let filtre = doc! { "user_id": &user_id, "groupe_id": &requete.groupe_id, "doc_id": {"$in": requete.doc_ids} };
     let collection = mongo.get_collection_typed::<ResponseDocument>(NOM_COLLECTION_DOCUMENTS_USAGERS)?;
-    match collection.find_one(filtre).await? {
-        Some(document) => {
-            let response = ResponseGetDocumentContent { ok: true, content: document };
-            outbound.respond(wrapper.delivery_info, response).await
-        },
-        None => {
-            outbound.respond(wrapper.delivery_info, ErrorMessage::err_code(404, "Document not found")).await
-        }
+
+    let mut documents = Vec::new();
+    let mut cursor = collection.find(filtre).await?;
+    while let Some(result) = cursor.next().await {
+        let mut doc = result?;
+        documents.push(doc);
     }
+    let response = ResponseGetDocumentContent { ok: true, documents };
+    outbound.respond(wrapper.delivery_info, response).await
 }
