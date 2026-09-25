@@ -74,11 +74,11 @@ async fn get_user_categories<M>(
         let mut categories = Vec::new();
 
         let filtre = doc! { "user_id": &user_id };
-        let collection = mongo.get_collection(NOM_COLLECTION_CATEGORIES_USAGERS)?;
+        let collection = mongo.get_collection_typed::<DocCategorieUsager>(NOM_COLLECTION_CATEGORIES_USAGERS)?;
 
         let mut curseur = collection.find(filtre).await?;
         while let Some(doc_categorie) = curseur.next().await {
-            let categorie: DocCategorieUsager = convertir_bson_deserializable(doc_categorie?)?;
+            let categorie: DocCategorieUsager = doc_categorie?;
             categories.push(categorie);
         }
 
@@ -124,11 +124,11 @@ async fn get_user_groups<M>(
         let mut liste_supprimes = Vec::new();
 
         let filtre = doc! { "user_id": &user_id };
-        let collection = mongo.get_collection(NOM_COLLECTION_GROUPES_USAGERS)?;
+        let collection = mongo.get_collection_typed::<DocGroupeUsager>(NOM_COLLECTION_GROUPES_USAGERS)?;
 
         let mut curseur = collection.find(filtre).await?;
         while let Some(doc_groupe) = curseur.next().await {
-            let groupe: DocGroupeUsager = convertir_bson_deserializable(doc_groupe?)?;
+            let groupe: DocGroupeUsager = doc_groupe?;
 
             if supprime_only {
                 if Some(true) == groupe.supprime {
@@ -197,6 +197,7 @@ async fn get_group_keys<M>(
             {"cle_id": {"$in": &requete.cle_ids}},
         ]
     };
+    debug!("get_group_keys filter: {:?}", filtre);
     let collection = mongo.get_collection_typed::<GroupeUsager>(NOM_COLLECTION_GROUPES_USAGERS)?;
     let mut curseur = collection.find(filtre).await?;
 
@@ -222,6 +223,11 @@ async fn get_group_keys<M>(
         };
 
         cle_ids.push(cle_id);
+    }
+
+    if cle_ids.is_empty() {
+        debug!("get_group_keys No keys to transfer");
+        return outbound.respond(wrapper.delivery_info, ErrorMessage::err("No keys to transfer")).await
     }
 
     let basic_properties = &wrapper.delivery_info.properties;
@@ -254,7 +260,8 @@ async fn get_group_keys<M>(
     let routing = routing.into();
     let value = serde_json::to_value(requete_cles)?;
     let (response, _id) = format.build_action_message(
-        MessageKind::Evenement, &routing, value)?;
+        MessageKind::Requete, &routing, value)?;
+    debug!("Key request relayed to keymaster: {:?}", response);
     messaging.emit(response, Some(routing)).await
 }
 

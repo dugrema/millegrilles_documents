@@ -70,7 +70,7 @@ async fn main() {
 
 fn init_resources() {
     let rust_log_var = std::env::var("RUST_LOG").unwrap_or("error,millegrilles_documents=warn,millegrilles_common_rust=warn".to_string());
-    // env_logger::init();
+    eprintln!("RUST_LOG={}", rust_log_var);
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(rust_log_var))
         .with(tracing_subscriber::fmt::layer())

@@ -119,6 +119,7 @@ impl ApplicationService {
         while let Some(result) = streamer.next().await {
             match result {
                 Ok(message) => {
+                    let routing = message.message.routage.clone();
                     if let Err(e) = process_request(
                         self.mongo.as_ref(),
                         self.messaging.as_ref(),
@@ -126,7 +127,7 @@ impl ApplicationService {
                         self.outbound.as_ref(),
                         message
                     ).await {
-                        error!("Ticker job failed: {}", e);
+                        error!("Request {:?} failed: {}", routing, e);
                     }
                 }
                 Err(e) => {
