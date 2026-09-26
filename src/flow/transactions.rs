@@ -96,7 +96,8 @@ async fn save_user_category(
     let user_id = match wrapper.get_certificate_user_id() {
         Some(user_id) => user_id,
         None => {
-            warn!("Old save_user_category with certificate missing user_id");
+            warn!("Old save_user_category with certificate ({:?}) missing user_id: {:?} -> {:?}",
+                wrapper.certificate.subject(), wrapper.message.routage, wrapper.message.contenu);
             return Err(CommonError::Str("Missing user_id from certificate"))
         }
     };

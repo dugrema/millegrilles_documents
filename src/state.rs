@@ -108,6 +108,7 @@ impl AppContext {
             app_service.clone(),
             shutdown_token.clone(),
             cli.restore,
+            cli.noresume,
             master_key,
         ).await?;
 
@@ -151,6 +152,7 @@ async fn start_threads(
     app_service: Arc<ApplicationService>,
     shutdown_token: CancellationToken,
     is_restoring: bool,
+    no_resume: bool,
     master_key: Option<PKey<Private>>,
 ) -> Result<(), CommonError> {
 
@@ -176,7 +178,7 @@ async fn start_threads(
         info!("Not starting consumer threads - restoring from backup");
         let shutdown_token_clone = shutdown_token.clone();
         join_set.spawn(async move {
-            restore_from_backup(app_service, &master_key, shutdown_token_clone).await
+            restore_from_backup(app_service, no_resume, &master_key, shutdown_token_clone).await
         });
     }
 

@@ -329,11 +329,13 @@ async fn get_group_documents_list<M>(
     while let Some(row) = curseur.next().await {
         let mut doc = row?;
         count += 1;
-        // Distinguish active and deleted documents
-        if Some(true) == doc.supprime {
+        // Distinguish active and deleted documents, but only when mixing them. On deleted_only requests, send full ID info
+        if !deleted_only && Some(true) == doc.supprime {
             liste_supprimes.push(doc.doc_id);
         } else {
-            doc.supprime = Some(false);  // Ensure supprime is always present and false
+            if doc.supprime.is_none() {
+                doc.supprime = Some(false);  // Ensure supprime is always present and false
+            }
             liste_documents.push(doc);
         }
     }
