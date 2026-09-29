@@ -61,8 +61,6 @@ pub async fn create_index_mongodb(db: &dyn MongoDao, config: &dyn ConfigMessages
         })
     ).await?;
 
-    // TODO Index
-
     db.create_index(
         config,
         NOM_COLLECTION_CATEGORIES_USAGERS,
