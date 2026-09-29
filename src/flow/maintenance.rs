@@ -1,23 +1,20 @@
+use crate::constantes::DOMAINE_NOM;
+use crate::external::mongo::COLLECTION_NAME_REDOLOG;
 use millegrilles_common_rust::certificats::VerificateurPermissions;
-use millegrilles_common_rust::chrono::{Datelike, Duration, Timelike, Utc};
+use millegrilles_common_rust::chrono::{Datelike, Duration, Timelike, Utc, Weekday};
+use millegrilles_common_rust::common_messages::BackupEvent;
 use millegrilles_common_rust::error::Error as CommonError;
 use millegrilles_common_rust::messages_generiques::MessageCedule;
-use millegrilles_common_rust::mongo_dao::MongoDaoTyped;
-use millegrilles_common_rust::tracing::{debug, error, warn};
-use millegrilles_common_rust::v3::{BackupService, PresenceService};
+use millegrilles_common_rust::tracing::{debug, error, info, warn};
 use millegrilles_common_rust::v3::facades::message_inbound::MessageValidated;
 use millegrilles_common_rust::v3::facades::message_outbound::MessageOutboundFacade;
-use crate::constantes::DOMAINE_NOM;
-use crate::flow::transactions::DocumentsTransactionService;
+use millegrilles_common_rust::v3::{BackupService, PresenceService};
 
-pub async fn process_ticker_job<M>(
-    mongo: &M,
+pub async fn process_ticker_job(
     outbound: &MessageOutboundFacade,
-    transaction: &DocumentsTransactionService,
     backup: &dyn BackupService,
     trigger: MessageValidated
-) -> Result<(), CommonError> where M: MongoDaoTyped
-{
+) -> Result<(), CommonError> {
     // Ensure this is an authorized module
     if let Err(e) = validate_ticker(&trigger).await {
         error!("Invalid ticker message, rejecting: {}", e);
@@ -35,6 +32,45 @@ pub async fn process_ticker_job<M>(
     // Emit domain presence
     if let Err(e) = outbound.emit_domain_presence(DOMAINE_NOM, None).await {
         warn!("Error emitting domain presence: {}", e);
+    }
+
+    if minute % 30 == 4 {
+        // {
+        // Run complete backup once a week on Sunday at 7:04 UTC.
+        // This concatenates all incremental files and rotates backup files. May produce final file.
+        let complete = minute == 4 && hour == 7 && day == Weekday::Sun;
+        // let complete = true;
+
+        match backup.backup_domain(
+            DOMAINE_NOM,
+            COLLECTION_NAME_REDOLOG,
+            ! complete,  // Invert, the bool is for incremental backups (true == incremental)
+        ).await {
+            Ok(result) => {
+                info!("Backup task completed");
+                match backup.transfer_backup_files_to_filehost(DOMAINE_NOM).await {
+                    Ok(()) => {
+                        info!("Backup files uploaded to filehost");
+                        // Emit the backup done event. This tells the filecontroler to sync backup files
+                        // across all filehosts.
+                        let version = match result { Some(result) => result.version, None => None };
+                        outbound.emit_backup_event(BackupEvent::new_done(DOMAINE_NOM, version)).await.ok();
+                    },
+                    Err(e) => error!("Error uploading backup files to filehost: {}", e)
+                }
+            },
+            Err(e) => {
+                error!("Error backing up domain: {}", e);
+            }
+        }
+    }
+
+    // Additional file upload task in case backups keep failing.
+    if minute == 13 && hour % 8 == 1 {
+        // {
+        if let Err(e) = backup.transfer_backup_files_to_filehost(DOMAINE_NOM).await {
+            error!("Error uploading backup files to filehost: {}", e);
+        }
     }
 
     Ok(())
