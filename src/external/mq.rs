@@ -13,6 +13,10 @@ pub const QUEUE_COMMANDS: &str = "commands";
 pub const QUEUE_TRANSACTIONS: &str = "transactions";
 pub const QUEUE_BACKUP: &str = "backup";
 
+pub const DOMAIN_KEYMASTER: &str = "MaitreDesCles";
+
+pub const EVENT_KEYMASTER_CERTIFICATE: &str = "certMaitreDesCles";
+
 pub fn init_queues(mq: &MessagingServiceImpl) -> Result<(), CommonError> {
     // Configure the queues and add to messaging service (will spawn consumer threads)
     mq.add_named_queue(
@@ -52,6 +56,9 @@ pub fn init_queues(mq: &MessagingServiceImpl) -> Result<(), CommonError> {
                 ConfigRoutingExchange { routing_key: format!("commande.{}.{}", DOMAINE_NOM, TRANSACTION_RECUPERER_DOCUMENT), exchange: Securite::L2Prive },
                 ConfigRoutingExchange { routing_key: format!("commande.{}.{}", DOMAINE_NOM, TRANSACTION_SUPPRIMER_GROUPE), exchange: Securite::L2Prive },
                 ConfigRoutingExchange { routing_key: format!("commande.{}.{}", DOMAINE_NOM, TRANSACTION_RECUPERER_GROUPE), exchange: Securite::L2Prive },
+
+                // Events
+                ConfigRoutingExchange { routing_key: format!("evenement.{}.{}", DOMAIN_KEYMASTER, EVENT_KEYMASTER_CERTIFICATE), exchange: Securite::L1Public },
             ],
             ttl: Some(QUEUE_TTL_DEFAULT),
             durable: true,

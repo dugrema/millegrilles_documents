@@ -9,15 +9,16 @@ use millegrilles_common_rust::generateur_messages::RoutageMessageAction;
 use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{MessageMilleGrillesOwned, MessageValidable};
 use millegrilles_common_rust::millegrilles_cryptographie::x509::EnveloppeCertificat;
 use millegrilles_common_rust::mongo_dao::MongoDaoTyped;
-use millegrilles_common_rust::mongodb::options::DeleteOneModel;
-use millegrilles_common_rust::tracing::{debug, error, event, info, warn};
-use millegrilles_common_rust::v3::{BackupService, MessagingService, PkiService, PresenceService};
+use millegrilles_common_rust::tracing::{debug, error, info, warn};
+use millegrilles_common_rust::v3::{BackupService, ChiffrageService, MessagingService, PkiService, PresenceService};
 use millegrilles_common_rust::v3::models::{ErrorMessage, VerifiedResponseMessage};
 use millegrilles_common_rust::serde::Serialize;
 use millegrilles_common_rust::serde_json;
+use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::MessageKind;
 use crate::common::{DocCategorieUsager, DocGroupeUsager, ResponseDocument, TransactionSauvegarderCategorieUsager, TransactionSauvegarderDocument, TransactionSauvegarderGroupeUsager, TransactionSupprimerDocument, TransactionSupprimerGroupe};
 use crate::constantes::{DOMAINE_NOM, EVENEMENT_UPDATE_CATGGROUP, EVENEMENT_UPDATE_GROUPDOCUMENT};
 use crate::external::mongo::{COLLECTION_NAME_REDOLOG, NOM_COLLECTION_CATEGORIES_USAGERS, NOM_COLLECTION_DOCUMENTS_USAGERS, NOM_COLLECTION_GROUPES_USAGERS};
+use crate::external::mq::EVENT_KEYMASTER_CERTIFICATE;
 use crate::flow::transactions::*;
 use crate::flow::transactions::DocumentsTransactionService;
 
@@ -25,6 +26,7 @@ use crate::flow::transactions::DocumentsTransactionService;
 /// calls transaction processor and then handles responses and emits events.
 pub async fn process_transaction<M>(
     mongo: &M,
+    chiffrage: &dyn ChiffrageService,
     messaging: &dyn MessagingService,
     pki: &dyn PkiService,
     outbound: &MessageOutboundFacade,
@@ -35,16 +37,34 @@ pub async fn process_transaction<M>(
         Some(action) => action,
         None => return outbound.respond(wrapper.delivery_info, ErrorMessage::err("No action provided in command")).await
     };
-    match action {
-        TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER => save_user_category(mongo, outbound, transaction, wrapper).await,
-        TRANSACTION_SAUVEGARDER_GROUPE_USAGER => save_user_group(mongo, messaging, pki, outbound, transaction, wrapper).await,
-        TRANSACTION_SAUVEGARDER_DOCUMENT => save_document(mongo, outbound, transaction, wrapper).await,
-        TRANSACTION_SUPPRIMER_DOCUMENT => delete_document(mongo, outbound, transaction, wrapper).await,
-        TRANSACTION_RECUPERER_DOCUMENT => restore_document(mongo, outbound, transaction, wrapper).await,
-        TRANSACTION_SUPPRIMER_GROUPE => delete_user_group(mongo, outbound, transaction, wrapper).await,
-        TRANSACTION_RECUPERER_GROUPE => restore_user_group(mongo, outbound, transaction, wrapper).await,
+
+    match wrapper.message.kind {
+        MessageKind::Commande => {
+            match action {
+                TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER => save_user_category(mongo, outbound, transaction, wrapper).await,
+                TRANSACTION_SAUVEGARDER_GROUPE_USAGER => save_user_group(mongo, messaging, pki, outbound, transaction, wrapper).await,
+                TRANSACTION_SAUVEGARDER_DOCUMENT => save_document(mongo, outbound, transaction, wrapper).await,
+                TRANSACTION_SUPPRIMER_DOCUMENT => delete_document(mongo, outbound, transaction, wrapper).await,
+                TRANSACTION_RECUPERER_DOCUMENT => restore_document(mongo, outbound, transaction, wrapper).await,
+                TRANSACTION_SUPPRIMER_GROUPE => delete_user_group(mongo, outbound, transaction, wrapper).await,
+                TRANSACTION_RECUPERER_GROUPE => restore_user_group(mongo, outbound, transaction, wrapper).await,
+                _ => {
+                    info!("Unknown action {} for process_transaction, skipping", action);
+                    Ok(())
+                }
+            }
+        },
+        MessageKind::Evenement => {
+            match action {
+                EVENT_KEYMASTER_CERTIFICATE => save_keymaster_certificate(chiffrage, wrapper).await,
+                _ => {
+                    info!("Unknown event {} in process_transaction, skipping", action);
+                    Ok(())
+                }
+            }
+        },
         _ => {
-            info!("Unknown action {} for process_transaction, skipping", action);
+            info!("Unhandled message type with action {} in process_transaction, skipping", action);
             Ok(())
         }
     }
@@ -617,4 +637,15 @@ async fn transmettre_cle_attachee(
     } else {
         Ok(())
     }
+}
+
+async fn save_keymaster_certificate(
+    chiffrage: &dyn ChiffrageService,
+    wrapper: MessageValidated,
+) -> Result<(), CommonError> {
+    debug!("Saving keymaster certificate for encryption/fiche");
+    if let Err(e) = chiffrage.add_encryption_publickey(wrapper.certificate) {
+        warn!("Error saving keymaster certificate: {:?}", e);
+    }
+    Ok(())
 }
