@@ -2,7 +2,7 @@ use millegrilles_common_rust::certificats::build_store_path_v2;
 use millegrilles_common_rust::chiffrage_cle::CleChiffrageHandlerImpl;
 use millegrilles_common_rust::configuration::{ConfigDb, ConfigMessages, charger_configuration, charger_configuration_mongo};
 use millegrilles_common_rust::error::Error as CommonError;
-use millegrilles_common_rust::mongo_dao::{MongoDaoImpl, initialiser};
+use millegrilles_common_rust::mongo_dao::initialiser_v3;
 use millegrilles_common_rust::tokio::task::JoinSet;
 use millegrilles_common_rust::tokio_util::sync::CancellationToken;
 use millegrilles_common_rust::tracing::{debug, info};
@@ -18,7 +18,6 @@ use millegrilles_common_rust::openssl::pkey::{PKey, Private};
 use millegrilles_common_rust::v3::impls::backup_service::DomainBackupServiceImpl;
 use millegrilles_common_rust::v3::impls::filehost_service::FilehostServiceImpl;
 use crate::Cli;
-use crate::constantes::*;
 use crate::external::mongo::*;
 use crate::flow::app_service::ApplicationService;
 use crate::flow::restore::restore_from_backup;
@@ -27,9 +26,7 @@ use crate::flow::transactions::DocumentsTransactionService;
 /// Composition object with services from common library
 pub struct AppContext {
     pub join_set: JoinSet<()>,
-    pub config: Arc<dyn ConfigService>,
     pub chiffrage: Arc<dyn ChiffrageService>,
-    pub mongo: Arc<MongoDaoImpl>,
     pub outbound: Arc<MessageOutboundFacade>,
     pub shutdown_token: CancellationToken,
 }
@@ -47,7 +44,7 @@ impl AppContext {
         let format = Arc::new(FormatServiceImpl::new(config.clone()));
 
         let mongo = Arc::new(
-            initialiser(config.get_configuration_pki(), config.get_configuraiton_mongo())?
+            initialiser_v3(config.as_ref(), config.get_configuraiton_mongo()).await?
         );
 
         // Facades
@@ -96,7 +93,7 @@ impl AppContext {
         ));
 
         info!("Configure middleware resources : queues, index, tables, ...");
-        app_service.configure(messaging.as_ref(), config.as_ref()).await?;
+        app_service.configure(messaging.as_ref()).await?;
 
         info!("Connect services, start maintenance threads");
         start_threads(
@@ -114,9 +111,7 @@ impl AppContext {
 
         Ok(AppContext {
             join_set,
-            config: config.clone(),
             chiffrage: security.clone(),
-            mongo,
             outbound,
             shutdown_token,
         })

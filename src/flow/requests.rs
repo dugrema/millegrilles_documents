@@ -1,28 +1,26 @@
+use crate::common::{DocCategorieUsager, DocGroupeUsager, DocIdentity, ResponseDocument};
+use crate::constantes::DOMAINE_NOM;
+use crate::external::mongo::{NOM_COLLECTION_CATEGORIES_USAGERS, NOM_COLLECTION_DOCUMENTS_USAGERS, NOM_COLLECTION_GROUPES_USAGERS};
 use millegrilles_common_rust::bson::doc;
 use millegrilles_common_rust::certificats::VerificateurPermissions;
 use millegrilles_common_rust::chrono::{DateTime, Utc};
-use millegrilles_common_rust::chrono::format::Item::Error;
 use millegrilles_common_rust::common_messages::RequeteDechiffrage;
-use millegrilles_common_rust::constantes::{Securite, DOMAINE_NOM_MAITREDESCLES, MAITREDESCLES_REQUETE_DECHIFFRAGE_V2};
-use millegrilles_common_rust::v3::facades::message_inbound::MessageValidated;
-use millegrilles_common_rust::v3::facades::message_outbound::MessageOutboundFacade;
+use millegrilles_common_rust::constantes::{DOMAINE_NOM_MAITREDESCLES, MAITREDESCLES_REQUETE_DECHIFFRAGE_V2, Securite};
 use millegrilles_common_rust::error::Error as CommonError;
-use millegrilles_common_rust::generateur_messages::{RoutageMessageAction, RoutageMessageReponse};
+use millegrilles_common_rust::generateur_messages::RoutageMessageAction;
 use millegrilles_common_rust::millegrilles_cryptographie::chiffrage::FormatChiffrage;
-use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, MongoDaoTyped};
-use millegrilles_common_rust::serde_json::json;
+use millegrilles_common_rust::millegrilles_cryptographie::chiffrage::formatchiffragestr;
+use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{MessageKind, epochseconds};
+use millegrilles_common_rust::mongo_dao::MongoDaoTyped;
+use millegrilles_common_rust::mongodb::options::Hint;
+use millegrilles_common_rust::serde::{Deserialize, Serialize};
+use millegrilles_common_rust::serde_json;
 use millegrilles_common_rust::tokio_stream::StreamExt;
 use millegrilles_common_rust::tracing::{debug, error, info};
+use millegrilles_common_rust::v3::facades::message_inbound::MessageValidated;
+use millegrilles_common_rust::v3::facades::message_outbound::MessageOutboundFacade;
 use millegrilles_common_rust::v3::models::ErrorMessage;
-use millegrilles_common_rust::serde::{Deserialize, Serialize};
-use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::{epochseconds, optionepochseconds, MessageKind};
-use millegrilles_common_rust::millegrilles_cryptographie::chiffrage::formatchiffragestr;
-use millegrilles_common_rust::mongodb::options::Hint;
-use millegrilles_common_rust::serde_json;
 use millegrilles_common_rust::v3::{FormatService, MessagingService};
-use crate::common::{DocCategorieUsager, ResponseDocument, DocGroupeUsager, DocIdentity};
-use crate::constantes::{DOMAINE_NOM};
-use crate::external::mongo::{NOM_COLLECTION_CATEGORIES_USAGERS, NOM_COLLECTION_DOCUMENTS_USAGERS, NOM_COLLECTION_GROUPES_USAGERS};
 
 pub const REQUEST_USER_CATEGORIES: &str = "getCategoriesUsager";
 pub const REQUEST_USER_GROUPS: &str = "getGroupesUsager";
@@ -46,7 +44,7 @@ pub async fn process_request<M>(
         REQUEST_USER_GROUPS => get_user_groups(mongo, outbound, wrapper).await,
         REQUEST_GROUP_KEYS => get_group_keys(mongo, outbound, messaging, format, wrapper).await,
         REQUEST_GROUP_DOCUMENTLIST => get_group_documents_list(mongo, outbound, wrapper).await,
-        REQUEST_DOCUMENT_CONTENT => get_documents_content(mongo, outbound, wrapper).await,
+        REQUEST_DOCUMENTS_CONTENT => get_documents_content(mongo, outbound, wrapper).await,
 
         _ => {
             info!("Unknown action {} for process_request, skipping", action);
@@ -380,7 +378,7 @@ async fn get_documents_content<M>(
     let mut documents = Vec::new();
     let mut cursor = collection.find(filtre).await?;
     while let Some(result) = cursor.next().await {
-        let mut doc = result?;
+        let doc = result?;
         documents.push(doc);
     }
     let response = ResponseGetDocumentContent { ok: true, documents };

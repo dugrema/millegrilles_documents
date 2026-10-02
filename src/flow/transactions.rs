@@ -1,4 +1,5 @@
 use crate::common::*;
+use crate::constantes::*;
 use crate::external::mongo::*;
 use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::bson;
@@ -8,14 +9,13 @@ use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::error::Error as CommonError;
 use millegrilles_common_rust::mongo_dao::MongoDao;
 use millegrilles_common_rust::mongodb::ClientSession;
-use millegrilles_common_rust::mongodb::options::{DeleteOneModel, UpdateOneModel, WriteModel};
+use millegrilles_common_rust::mongodb::options::{UpdateOneModel, WriteModel};
 use millegrilles_common_rust::serde_json::Value;
 use millegrilles_common_rust::tracing::{info, warn};
 use millegrilles_common_rust::v3::impls::transaction_service::TransactionServiceImpl;
 use millegrilles_common_rust::v3::models::{TransactionOperationAggregator, TransactionWrapper};
 use millegrilles_common_rust::v3::{ConfigService, FormatService, TransactionRouter, TransactionService};
 use std::sync::Arc;
-use crate::constantes::*;
 
 pub const TRANSACTION_SAUVEGARDER_CATEGORIE_USAGER: &str = "sauvegarderCategorieUsager";
 pub const TRANSACTION_SAUVEGARDER_GROUPE_USAGER: &str = "sauvegarderGroupeUsager";
@@ -54,13 +54,14 @@ impl DocumentsTransactionService {
         self.transaction.process_transaction(wrapper, session).await
     }
 
-    pub async fn process_value(&self, domain: &str, action: &str, value: Value, session: Option<&mut ClientSession>) -> Result<(), CommonError> {
+    pub async fn _process_value(&self, domain: &str, action: &str, value: Value, session: Option<&mut ClientSession>) -> Result<String, CommonError> {
         self.transaction.process_value(domain, action, value, session).await
     }
 }
 
 struct SenseursPassifsTransactionRouter {
     mongo: Arc<dyn MongoDao>,
+    #[allow(dead_code)]
     ignore_duplicates: bool,
 }
 
@@ -416,7 +417,7 @@ async fn restore_user_group(
     info!("Maj appareil: {:?}", wrapper.message.contenu);
     let transaction_value: TransactionSupprimerGroupe = wrapper.message.deserialize()?;
 
-    let mut aggregator = TransactionOperationAggregator::new();
+    let aggregator = TransactionOperationAggregator::new();
 
     let user_id = match wrapper.get_certificate_user_id() {
         Some(user_id) => user_id,

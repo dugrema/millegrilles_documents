@@ -9,7 +9,7 @@ use millegrilles_common_rust::v3::impls::messaging_service::MessagingServiceImpl
 pub const QUEUE_TTL_DEFAULT: u32 = 30_000;
 pub const QUEUE_TICKER: &str = "job_ticker";
 pub const QUEUE_REQUESTS: &str = "requests";
-pub const QUEUE_COMMANDS: &str = "commands";
+// pub const QUEUE_COMMANDS: &str = "commands";
 pub const QUEUE_TRANSACTIONS: &str = "transactions";
 pub const QUEUE_BACKUP: &str = "backup";
 

@@ -11,7 +11,7 @@ use millegrilles_common_rust::millegrilles_cryptographie::x509::EnveloppeCertifi
 use millegrilles_common_rust::mongo_dao::MongoDaoTyped;
 use millegrilles_common_rust::tracing::{debug, error, info, warn};
 use millegrilles_common_rust::v3::{BackupService, ChiffrageService, MessagingService, PkiService, PresenceService};
-use millegrilles_common_rust::v3::models::{ErrorMessage, VerifiedResponseMessage};
+use millegrilles_common_rust::v3::models::ErrorMessage;
 use millegrilles_common_rust::serde::Serialize;
 use millegrilles_common_rust::serde_json;
 use millegrilles_common_rust::millegrilles_cryptographie::messages_structs::MessageKind;
